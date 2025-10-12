@@ -1,15 +1,10 @@
 # main.py
-import sys
 from PySide6.QtWidgets import QApplication
-from core.model import ArrayModel
-from gui.main_window import MainWindow
+from gui.menu_window import MenuWindow
+import sys
 
-def main():
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    model = ArrayModel(max_size=500)
-    win = MainWindow(model)
-    win.show()
+    w = MenuWindow()
+    w.show()
     sys.exit(app.exec())
-
-if __name__ == '__main__':
-    main()
