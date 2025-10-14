@@ -178,28 +178,27 @@ class BSTree:
 
     # ---------- 额外工具（可选） ----------
     def lower_bound(self, val):
-        """返回第一个 >= val 的节点（若无返回 None）"""
+        """返回第一个 >= val 的节点（带路径）"""
         cur = self.root
         res = None
+        path = []
         while cur:
+            path.append(cur)
             if cur.val >= val:
                 res = cur
                 cur = cur.left
             else:
                 cur = cur.right
-        return res
+        self.notify("trace_path", None, extra=path)
+        return res, path
 
     def successor(self, val):
-        """返回值 > val 的最小节点（后继）"""
-        node = self.search(val)
-        if node and node.right:
-            cur = node.right
-            while cur.left:
-                cur = cur.left
-            return cur
-        succ = None
+        """返回比 val 大的最小节点（带路径）"""
+        path = []
         cur = self.root
+        succ = None
         while cur:
+            path.append(cur)
             if val < cur.val:
                 succ = cur
                 cur = cur.left
@@ -207,18 +206,16 @@ class BSTree:
                 cur = cur.right
             else:
                 break
-        return succ
+        self.notify("trace_path", None, extra=path)
+        return succ, path
 
     def predecessor(self, val):
-        node = self.search(val)
-        if node and node.left:
-            cur = node.left
-            while cur.right:
-                cur = cur.right
-            return cur
-        pred = None
+        """返回比 val 小的最大节点（带路径）"""
+        path = []
         cur = self.root
+        pred = None
         while cur:
+            path.append(cur)
             if val > cur.val:
                 pred = cur
                 cur = cur.right
@@ -226,4 +223,5 @@ class BSTree:
                 cur = cur.left
             else:
                 break
-        return pred
+        self.notify("trace_path", None, extra=path)
+        return pred, path
