@@ -9,6 +9,8 @@ from matplotlib.figure import Figure
 import matplotlib.patches as patches
 import math
 from core.binary_tree import BinaryTree
+from gui.bst_window import BSTWindow
+
 
 class TreeWindow(QMainWindow):
     def __init__(self):
@@ -67,6 +69,11 @@ class TreeWindow(QMainWindow):
         self.timer.timeout.connect(self._highlight_next)
 
         self.draw_tree(None)
+
+        self.btnBST = QPushButton("切换到 BST 可视化")
+        self.btnBST.clicked.connect(self.open_bst)
+        ctrl.addWidget(self.btnBST)
+
 
     # === 控件逻辑 ===
     def build_random(self):
@@ -196,3 +203,8 @@ class TreeWindow(QMainWindow):
             if n.right:
                 q.append((n.right, d+1))
         return maxd
+    
+    def open_bst(self):
+        self.bst = BSTWindow()
+        self.bst.show()
+
