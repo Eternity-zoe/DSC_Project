@@ -8,3 +8,4 @@ if __name__ == "__main__":
     w = MenuWindow()
     w.show()
     sys.exit(app.exec())
+#不要完全二叉树

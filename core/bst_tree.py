@@ -26,10 +26,8 @@ class BSTree:
         for f in self.listeners:
             f({"action": action, "node": node, "tree": self.root, "extra": extra})
 
-    # ---------- 插入（考虑频率） ----------
     def insert(self, val):
-        """向 BST 插入 val；若存在则 freq++ 并通知 increase_freq"""
-        if not self.root:
+        if not self.root:#空树
             self.root = BSTNode(val)
             self.notify("insert", self.root, extra=[self.root])
             return self.root
@@ -38,14 +36,14 @@ class BSTree:
         cur = self.root
         path = []
         while cur:
-            path.append(cur)
-            parent = cur
+            path.append(cur)  # 记录查找路径
+            parent = cur      # 保存当前节点的父节点
             if val < cur.val:
-                cur = cur.left
+                cur = cur.left  # 小于当前值，向左子树查找
             elif val > cur.val:
-                cur = cur.right
+                cur = cur.right  # 大于当前值，向右子树查找
             else:
-                # 已存在，增加频率
+                # 找到相等节点：增加频率，不创建新节点
                 cur.freq += 1
                 self.notify("increase_freq", cur, extra=path + [cur])
                 return cur
@@ -55,11 +53,10 @@ class BSTree:
             parent.left = new_node
         else:
             parent.right = new_node
-        path.append(new_node)
-        self.notify("insert", new_node, extra=path)
+        path.append(new_node)  # 路径包含新节点
+        self.notify("insert", new_node, extra=path)  # 通知插入事件
         return new_node
 
-    # ---------- 查找（返回节点或 None，通知路径） ----------
     def search(self, val):
         cur = self.root
         path = []
@@ -75,7 +72,6 @@ class BSTree:
         self.notify("not_found", None, extra=path)
         return None
 
-    # ---------- 删除（考虑 freq：freq>1 则 --freq） ----------
     def delete(self, val):
         parent = None
         cur = self.root
@@ -128,11 +124,11 @@ class BSTree:
                 succ_parent.left = succ.right
             else:
                 succ_parent.right = succ.right
-            # 实际删除的节点是 succ，通知时仍把 cur 作为代表（结构已更新）
+            #通知删除
             self.notify("delete", cur, extra=path + [cur])
             return True
 
-        # 对于情形 1/2，通知删除
+        # 对于情形 1&2，通知删除
         self.notify("delete", cur, extra=path)
         return True
 

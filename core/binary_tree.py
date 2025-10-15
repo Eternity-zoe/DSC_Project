@@ -44,13 +44,13 @@ class BinaryTree:
         self.notify("build")
 
     def insert(self, val):
-        """按层插入（普通二叉树插入到第一个空位）"""
         new_node = TreeNode(val, nid=self._new_id())
         if not self.root:
             self.root = new_node
             self.notify("insert", new_node)
             return new_node
         q = deque([self.root])
+        #层序遍历找第一个空位（左子树为空则插左，否则插右）
         while q:
             cur = q.popleft()
             if not cur.left:

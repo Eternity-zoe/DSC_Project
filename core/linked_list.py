@@ -18,7 +18,7 @@ class LinkedList:
     def _notify(self, action=None):
         nodes = []
         cur = self.head
-        while cur:
+        while cur:#遍历
             nodes.append(cur.val)
             cur = cur.next
         state = {"array": nodes, "action": action}
@@ -34,7 +34,7 @@ class LinkedList:
                 self.head = node
             else:
                 tail.next = node
-            tail = node
+            tail = node#更新尾结点
         self._notify({"type": "build", "items": items})
 
     def insert(self, index, value):
