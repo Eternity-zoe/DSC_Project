@@ -38,9 +38,15 @@ class TreeWindow(QMainWindow):
         self.btnBuild.clicked.connect(self.build_random)
         ctrl.addWidget(self.btnBuild)
 
-        # 新增完全二叉树勾选框
-        self.chkComplete = QCheckBox("生成完全二叉树")
-        ctrl.addWidget(self.chkComplete)
+        # 新增：完全二叉树勾选框
+        self.cbComplete = QCheckBox("生成完全二叉树")
+        ctrl.addWidget(self.cbComplete)
+
+        # 新增：节点数量输入框
+        ctrl.addWidget(QLabel("节点数:"))
+        self.spinNodeCount = QLineEdit("7")  # 默认7个节点
+        self.spinNodeCount.setMaximumWidth(50)
+        ctrl.addWidget(self.spinNodeCount)
 
         self.inputVal = QLineEdit(); self.inputVal.setPlaceholderText("节点值")
         ctrl.addWidget(self.inputVal)
@@ -78,18 +84,26 @@ class TreeWindow(QMainWindow):
         self.btnBST.clicked.connect(self.open_bst)
         ctrl.addWidget(self.btnBST)
 
+
     # === 控件逻辑 ===
     def build_random(self):
-        # 新增参数：是否完全二叉树、最大子节点数4
-        self.tree.build_random(
-            n=7, 
-            is_complete=self.chkComplete.isChecked(),
-            # max_children=4
-        )
-        if self.chkComplete.isChecked():
-            self.status.setText("已随机生成完全二叉树")
+        # 获取节点数量
+        try:
+            n = int(self.spinNodeCount.text())
+            if n <= 0:
+                QMessageBox.warning(self, "错误", "节点数必须为正数")
+                return
+        except ValueError:
+            QMessageBox.warning(self, "错误", "请输入有效的节点数")
+            return
+            
+        # 获取是否生成完全二叉树的勾选状态
+        is_complete = self.cbComplete.isChecked()
+        self.tree.build_random(n=n, is_complete=is_complete)
+        if is_complete:
+            self.status.setText(f"已生成 {n} 个节点的完全二叉树")
         else:
-            self.status.setText("已随机生成二叉树（子节点≤4）")
+            self.status.setText(f"已生成 {n} 个节点的随机二叉树（子节点≤4）")
 
     def insert_node(self):
         try:
