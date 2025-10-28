@@ -1,6 +1,7 @@
 # core/bst_tree.py
 import random
 from collections import deque
+from .tree_traversals import inorder_traversal  # 导入中序遍历
 
 class BSTNode:
     def __init__(self, val):
@@ -134,15 +135,17 @@ class BSTree:
 
     # ---------- 中序（返回值序列） ----------
     def inorder(self):
+        """中序遍历（返回值序列）"""
+        # 使用通用遍历算法获取节点列表
+        nodes = inorder_traversal(
+            root=self.root,
+            get_left=lambda node: node.left,
+            get_right=lambda node: node.right
+        )
+        # 转换为值序列（考虑频率）
         res = []
-        def dfs(node):
-            if not node: return
-            dfs(node.left)
-            # 如果频率>1，把值重复 freq 次或用标记显示，UI 可选择如何显示
-            for _ in range(node.freq):
-                res.append(node.val)
-            dfs(node.right)
-        dfs(self.root)
+        for node in nodes:
+            res.extend([node.val] * node.freq)
         return res
 
     # ---------- 构建随机 BST（更不易倾斜） ----------

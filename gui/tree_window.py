@@ -84,7 +84,7 @@ class TreeWindow(QMainWindow):
         self.tree.build_random(
             n=7, 
             is_complete=self.chkComplete.isChecked(),
-            max_children=4
+            # max_children=4
         )
         if self.chkComplete.isChecked():
             self.status.setText("已随机生成完全二叉树")
