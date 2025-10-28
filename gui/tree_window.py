@@ -1,7 +1,7 @@
 # gui/tree_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QLineEdit, QMessageBox
+    QLabel, QLineEdit, QMessageBox, QCheckBox  # 新增QCheckBox导入
 )
 from PySide6.QtCore import QTimer
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -37,6 +37,10 @@ class TreeWindow(QMainWindow):
         self.btnBuild = QPushButton("随机构建")
         self.btnBuild.clicked.connect(self.build_random)
         ctrl.addWidget(self.btnBuild)
+
+        # 新增完全二叉树勾选框
+        self.chkComplete = QCheckBox("生成完全二叉树")
+        ctrl.addWidget(self.chkComplete)
 
         self.inputVal = QLineEdit(); self.inputVal.setPlaceholderText("节点值")
         ctrl.addWidget(self.inputVal)
@@ -74,11 +78,18 @@ class TreeWindow(QMainWindow):
         self.btnBST.clicked.connect(self.open_bst)
         ctrl.addWidget(self.btnBST)
 
-
     # === 控件逻辑 ===
     def build_random(self):
-        self.tree.build_random()
-        self.status.setText("已随机生成二叉树")
+        # 新增参数：是否完全二叉树、最大子节点数4
+        self.tree.build_random(
+            n=7, 
+            is_complete=self.chkComplete.isChecked(),
+            max_children=4
+        )
+        if self.chkComplete.isChecked():
+            self.status.setText("已随机生成完全二叉树")
+        else:
+            self.status.setText("已随机生成二叉树（子节点≤4）")
 
     def insert_node(self):
         try:
@@ -207,4 +218,3 @@ class TreeWindow(QMainWindow):
     def open_bst(self):
         self.bst = BSTWindow()
         self.bst.show()
-
