@@ -26,6 +26,11 @@ class TreeSelector(QMainWindow):
         btn_huffman.clicked.connect(self.open_huffman_tree)
         layout.addWidget(btn_huffman)
 
+        # AVL树按钮
+        btn_avl = QPushButton("AVL树可视化") 
+        btn_avl.clicked.connect(self.open_avl_tree)
+        layout.addWidget(btn_avl)
+
     def open_binary_tree(self):
         from gui.tree_window import TreeWindow  # 注意：如果tree_window在gui目录下，需要补全路径
         self.binary_window = TreeWindow()
@@ -42,4 +47,10 @@ class TreeSelector(QMainWindow):
         from gui.huffman_window import HuffmanWindow  # 补全路径（假设在gui目录下）
         self.huffman_window = HuffmanWindow()
         self.huffman_window.show()
+        self.close()
+
+    def open_avl_tree(self):
+        from gui.avl_window import AVLWindow  # 补全路径（假设在gui目录下）
+        self.avl_window = AVLWindow()
+        self.avl_window.show()
         self.close()
