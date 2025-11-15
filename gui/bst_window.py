@@ -1,9 +1,9 @@
 # gui/bst_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QLineEdit, QMessageBox, QSpinBox
+    QLabel, QLineEdit, QMessageBox, QSpinBox, QTextEdit
 )
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QDateTime  # 合并QTimer和QDateTime导入
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
@@ -13,132 +13,164 @@ from core.bst_tree import BSTree
 class BSTWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("二叉搜索树（BST）可视化 - 支持多集合与前驱/后继查找")
-        self.resize(1100, 700)
+        self.setWindowTitle("二叉搜索树（BST）可视化 - 支持步骤记录")
+        self.resize(1400, 700)  # 加宽窗口
 
-        # === 数据结构 ===
+        # === 初始化核心数据结构 ===
         self.tree = BSTree()
-        self.tree.add_listener(self.on_update)
+        self.tree.add_listener(self.on_update)  # 绑定更新回调
 
-        # === 图形区 ===
-        self.fig = Figure(figsize=(8, 6))
+        # === 初始化图形对象（修复：添加matplotlib画布） ===
+        self.fig = Figure(figsize=(8, 6), dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.ax = self.fig.add_subplot(111)
+        self.coords = {}  # 节点坐标映射
 
-        # === 界面布局 ===
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.addWidget(self.canvas)
-
-        # 控件区
-        ctrl = QHBoxLayout()
-        layout.addLayout(ctrl)
-
-        # 输入框与基础操作
-        self.inputVal = QLineEdit(); self.inputVal.setPlaceholderText("输入整数")
-        ctrl.addWidget(self.inputVal)
-
-        self.btnInsert = QPushButton("插入")
-        self.btnInsert.clicked.connect(self.insert)
-        ctrl.addWidget(self.btnInsert)
-
-        self.btnSearch = QPushButton("查找")
-        self.btnSearch.clicked.connect(self.search)
-        ctrl.addWidget(self.btnSearch)
-
-        self.btnDelete = QPushButton("删除")
-        self.btnDelete.clicked.connect(self.delete)
-        ctrl.addWidget(self.btnDelete)
-
-        self.btnInorder = QPushButton("中序遍历")
-        self.btnInorder.clicked.connect(self.show_inorder)
-        ctrl.addWidget(self.btnInorder)
-
-        # 随机生成
-        ctrl.addWidget(QLabel("随机节点数:"))
-        self.spinN = QSpinBox(); self.spinN.setRange(1, 50); self.spinN.setValue(10)
-        ctrl.addWidget(self.spinN)
-        self.btnRandom = QPushButton("随机生成 BST")
-        self.btnRandom.clicked.connect(self.random_build)
-        ctrl.addWidget(self.btnRandom)
-
-        layout.addWidget(QLabel("——— 高级查找功能 ———"))
-        adv = QHBoxLayout()
-        layout.addLayout(adv)
-
-        self.btnPre = QPushButton("查找前驱")
-        self.btnPre.clicked.connect(self.find_predecessor)
-        adv.addWidget(self.btnPre)
-
-        self.btnSuc = QPushButton("查找后继")
-        self.btnSuc.clicked.connect(self.find_successor)
-        adv.addWidget(self.btnSuc)
-
-        self.btnLower = QPushButton("lower_bound 查找")
-        self.btnLower.clicked.connect(self.find_lower_bound)
-        adv.addWidget(self.btnLower)
-
-        # 状态栏
-        self.status = QLabel("就绪")
-        layout.addWidget(self.status)
-
-        # 动画属性
+        # === 初始化动画相关变量 ===
+        self.path_nodes = []  # 动画路径节点
+        self.path_index = 0   # 动画当前索引
         self.timer = QTimer()
         self.timer.timeout.connect(self._animate_path)
-        self.path_nodes = []
-        self.path_index = 0
 
-        self.coords = {}
+        # === 新增：步骤记录面板 ===
+        self.step_text = QTextEdit()
+        self.step_text.setReadOnly(True)
+        self.step_text.setPlaceholderText("操作步骤将显示在这里...")
+
+        # === 主布局：左右分栏 ===
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QHBoxLayout(central)  # 水平布局
+
+        # 左侧：树图和控件
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)  # 左侧垂直布局
+        main_layout.addWidget(left_panel, 7)  # 占70%宽度
+        main_layout.addWidget(self.step_text, 3)  # 右侧步骤面板占30%
+
+        # === 左侧控件区：基础操作 ===
+        ctrl = QHBoxLayout()  # 修复：正确定义ctrl布局
+        # 输入框
+        self.inputVal = QLineEdit()  # 修复：初始化输入框
+        self.inputVal.setPlaceholderText("输入整数（1-100）")
+        self.inputVal.setMaximumWidth(120)
+        ctrl.addWidget(self.inputVal)
+        # 按钮
+        self.btn_insert = QPushButton("插入")
+        self.btn_insert.clicked.connect(self.insert)
+        ctrl.addWidget(self.btn_insert)
+        self.btn_search = QPushButton("查找")
+        self.btn_search.clicked.connect(self.search)
+        ctrl.addWidget(self.btn_search)
+        self.btn_delete = QPushButton("删除")
+        self.btn_delete.clicked.connect(self.delete)
+        ctrl.addWidget(self.btn_delete)
+        self.btn_inorder = QPushButton("中序遍历")
+        self.btn_inorder.clicked.connect(self.show_inorder)
+        ctrl.addWidget(self.btn_inorder)
+        # 随机生成控件
+        ctrl.addWidget(QLabel("随机节点数："))
+        self.spinN = QSpinBox()  # 修复：初始化spinN
+        self.spinN.setRange(1, 20)
+        self.spinN.setValue(10)
+        self.spinN.setMaximumWidth(60)
+        ctrl.addWidget(self.spinN)
+        self.btn_random = QPushButton("随机生成 BST")
+        self.btn_random.clicked.connect(self.random_build)
+        ctrl.addWidget(self.btn_random)
+
+        # === 左侧控件区：高级功能 ===
+        adv = QHBoxLayout()  # 修复：正确定义adv布局
+        adv.addWidget(QLabel("高级查找："))
+        self.btn_predecessor = QPushButton("查找前驱")
+        self.btn_predecessor.clicked.connect(self.find_predecessor)
+        adv.addWidget(self.btn_predecessor)
+        self.btn_successor = QPushButton("查找后继")
+        self.btn_successor.clicked.connect(self.find_successor)
+        adv.addWidget(self.btn_successor)
+        self.btn_lower_bound = QPushButton("lower_bound（首个≥值）")
+        self.btn_lower_bound.clicked.connect(self.find_lower_bound)
+        adv.addWidget(self.btn_lower_bound)
+
+        # === 状态栏 ===
+        self.status = QLabel("就绪 - 支持插入/查找/删除/前驱后继查找")  # 修复：初始化status
+
+        # === 组装左侧布局 ===
+        left_layout.addWidget(self.canvas)  # 添加画布
+        left_layout.addLayout(ctrl)  # 添加基础操作布局
+        left_layout.addWidget(QLabel("——— 高级查找功能 ———"))
+        left_layout.addLayout(adv)  # 添加高级功能布局
+        left_layout.addWidget(self.status)  # 添加状态栏
+
+        # 初始绘制空树
         self.draw_tree(None)
 
     # === 基础操作 ===
     def insert(self):
         val = self._get_int()
-        if val is None: return
-        self.tree.insert(val)
+        if val is None:
+            return
+        self.add_step(f"开始插入值：{val}")
+        self.tree.insert(val, step_callback=self.add_step)  # 传入步骤回调
 
     def search(self):
         val = self._get_int()
-        if val is None: return
-        self.tree.search(val)
+        if val is None:
+            return
+        self.add_step(f"开始搜索值：{val}")
+        self.tree.search(val, step_callback=self.add_step)  # 传入步骤回调
 
     def delete(self):
         val = self._get_int()
-        if val is None: return
-        self.tree.delete(val)
+        if val is None:
+            return
+        self.add_step(f"开始删除值：{val}")
+        self.tree.delete(val, step_callback=self.add_step)  # 传入步骤回调
 
+    # === 中序遍历 ===
     def show_inorder(self):
         if not self.tree.root:
             QMessageBox.warning(self, "错误", "树为空")
             return
         seq = self.tree.inorder()
-        self.status.setText(f"中序遍历（含频率）: {seq}")
+        seq_text = " -> ".join(map(str, seq))
+        self.status.setText(f"中序遍历（递增序列）: {seq_text}")
+        self.add_step(f"中序遍历结果（BST特性：递增）：{seq_text}")
 
+    # === 随机生成BST ===
     def random_build(self):
         n = self.spinN.value()
-        values = self.tree.build_random(n=n, value_range=(0, 100))
+        self.add_step(f"开始随机生成 {n} 个节点的BST（值范围：1-100）")
+        values = self.tree.build_random(n=n, value_range=(1, 100), step_callback=self.add_step)
+        self.add_step(f"生成完成，值序列：{values}")
         self.status.setText(f"随机生成 {n} 个节点: {values}")
 
-    # === 新增功能：前驱 / 后继 / lower_bound ===
+    # === 高级查找功能 ===
     def find_predecessor(self):
         val = self._get_int()
-        if val is None: return
-        node, path = self.tree.predecessor(val)
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的前驱（中序遍历前一个节点）")
+        node, path = self.tree.predecessor(val, step_callback=self.add_step)
         self._animate_special_path("前驱", val, node, path)
 
     def find_successor(self):
         val = self._get_int()
-        if val is None: return
-        node, path = self.tree.successor(val)
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的后继（中序遍历后一个节点）")
+        node, path = self.tree.successor(val, step_callback=self.add_step)
         self._animate_special_path("后继", val, node, path)
 
     def find_lower_bound(self):
         val = self._get_int()
-        if val is None: return
-        node, path = self.tree.lower_bound(val)
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的lower_bound（首个≥{val}的节点）")
+        node, path = self.tree.lower_bound(val, step_callback=self.add_step)
         self._animate_special_path("lower_bound", val, node, path)
 
+    # === 动画逻辑 ===
     def _animate_special_path(self, op, val, node, path):
         """带路径动画的前驱/后继/lower_bound 查找"""
         if not path:
@@ -152,10 +184,10 @@ class BSTWindow(QMainWindow):
         self.timer.start(450)
 
     def _animate_trace(self, op, val, node):
-        """逐步显示路径动画"""
         if self.path_index < len(self.path_nodes):
             n = self.path_nodes[self.path_index]
             self.draw_tree(self.tree.root, highlight=n)
+            self.add_step(f"{op}查找步骤 {self.path_index+1}：比较节点 {n.val}（当前路径：{[x.val for x in self.path_nodes[:self.path_index+1]]}）")
             self.path_index += 1
         else:
             self.timer.stop()
@@ -166,16 +198,8 @@ class BSTWindow(QMainWindow):
                 self.status.setText(f"{op}({val})：未找到结果")
                 self.draw_tree(self.tree.root)
 
-    def _show_special_result(self, op, val, node):
-        if node:
-            self.status.setText(f"{op}({val}) = {node.val} (freq={node.freq})")
-            self.draw_tree(self.tree.root, highlight=node)
-        else:
-            self.status.setText(f"{op}({val})：未找到结果")
-            self.draw_tree(self.tree.root)
-
-    # === 动画逻辑 ===
     def _animate_path(self):
+        """通用路径动画"""
         if self.path_index >= len(self.path_nodes):
             self.timer.stop()
             self.draw_tree(self.tree.root)
@@ -184,37 +208,46 @@ class BSTWindow(QMainWindow):
         self.draw_tree(self.tree.root, highlight=node)
         self.path_index += 1
 
-    # === 数据更新回调 ===
+    # === 数据更新回调（合并重复方法，修复覆盖问题） ===
     def on_update(self, state):
         action = state.get("action")
         node = state.get("node")
         extra = state.get("extra") or []
 
+        # 处理操作路径动画
         if extra and isinstance(extra, list) and all(hasattr(x, "val") for x in extra):
             self.path_nodes = extra
             self.path_index = 0
             self.timer.start(450)
 
+        # 更新状态栏和步骤记录
         if action == "insert":
             self.status.setText(f"插入节点 {node.val}")
+            self.add_step(f"插入成功：节点 {node.val}")
             self.draw_tree(self.tree.root, highlight=node)
         elif action == "increase_freq":
             self.status.setText(f"节点 {node.val} 频率 +1 -> {node.freq}")
+            self.add_step(f"节点 {node.val} 频率+1（当前：{node.freq}）")
             self.draw_tree(self.tree.root, highlight=node)
         elif action == "decrease_freq":
             self.status.setText(f"节点 {node.val} 频率 -1 -> {node.freq}")
+            self.add_step(f"节点 {node.val} 频率-1（当前：{node.freq}）")
             self.draw_tree(self.tree.root, highlight=node)
         elif action == "delete":
             self.status.setText(f"删除节点 {node.val if node else '?'}")
+            self.add_step(f"删除成功：节点 {node.val if node else '?'}")
             self.draw_tree(self.tree.root)
         elif action == "found":
             self.status.setText(f"查找成功: {node.val} (freq={node.freq})")
+            self.add_step(f"查找成功：{node.val}（频率：{node.freq}）")
             self.draw_tree(self.tree.root, highlight=node)
         elif action == "not_found":
             self.status.setText("查找失败")
+            self.add_step("查找失败：未找到目标节点")
             self.draw_tree(self.tree.root)
         elif action == "build":
             self.status.setText("随机生成 BST 完成")
+            self.add_step("随机生成BST完成")
             self.draw_tree(self.tree.root)
 
     # === 绘制树形结构 ===
@@ -228,7 +261,8 @@ class BSTWindow(QMainWindow):
 
         max_depth = self._compute_depth(node)
         def layout(n, x, depth, span):
-            if not n: return
+            if not n:
+                return
             self.coords[n] = (x, -depth)
             gap = span / 2
             layout(n.left, x - gap, depth + 1, gap)
@@ -261,20 +295,38 @@ class BSTWindow(QMainWindow):
             self.ax.set_ylim(min(ys) - 1, max(ys) + 1)
         self.canvas.draw_idle()
 
+    # === 辅助方法：计算树深度 ===
     def _compute_depth(self, root):
-        if not root: return 0
+        if not root:
+            return 0
         q = [(root, 1)]
         maxd = 1
         for n, d in q:
             maxd = max(maxd, d)
-            if n.left: q.append((n.left, d+1))
-            if n.right: q.append((n.right, d+1))
+            if n.left:
+                q.append((n.left, d + 1))
+            if n.right:
+                q.append((n.right, d + 1))
         return maxd
 
-    # === 工具函数 ===
+    # === 工具函数：获取输入整数 ===
     def _get_int(self):
         try:
-            return int(self.inputVal.text())
-        except:
-            QMessageBox.warning(self, "错误", "请输入整数")
+            val = int(self.inputVal.text().strip())
+            if val < 1 or val > 100:
+                QMessageBox.warning(self, "范围错误", "请输入1-100之间的整数！")
+                return None
+            return val
+        except ValueError:
+            QMessageBox.warning(self, "输入错误", "请输入有效的整数！")
             return None
+
+    # === 步骤记录方法 ===
+    def add_step(self, text):
+        """向右侧面板添加步骤记录"""
+        current_time = QDateTime.currentDateTime().toString("HH:mm:ss")
+        self.step_text.append(f"[{current_time}] {text}")
+        # 自动滚动到底部
+        self.step_text.verticalScrollBar().setValue(
+            self.step_text.verticalScrollBar().maximum()
+        )

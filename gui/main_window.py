@@ -8,7 +8,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
 import json, os, random
-
+# 配置中文字体
+import matplotlib
+matplotlib.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC"]
+matplotlib.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
 from core.sequence_list import SequenceList
 from core.linked_list import LinkedList
 from core.stack import Stack
