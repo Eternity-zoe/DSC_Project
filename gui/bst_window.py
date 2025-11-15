@@ -92,6 +92,25 @@ class BSTWindow(QMainWindow):
         self.btn_lower_bound.clicked.connect(self.find_lower_bound)
         adv.addWidget(self.btn_lower_bound)
 
+        # 在BSTWindow类的__init__方法的控件区添加文件操作按钮
+        # 在高级功能布局后添加：
+
+        # 文件操作布局
+        file_ops = QHBoxLayout()
+        file_ops.addWidget(QLabel("文件操作："))
+        self.btn_save = QPushButton("保存数据")
+        self.btn_save.clicked.connect(self.save_data)
+        file_ops.addWidget(self.btn_save)
+        self.btn_load = QPushButton("加载数据")
+        self.btn_load.clicked.connect(self.load_data)
+        file_ops.addWidget(self.btn_load)
+
+        # 在组装左侧布局时添加
+        left_layout.addWidget(QLabel("——— 文件操作 ———"))
+        left_layout.addLayout(file_ops)
+
+        
+
         # === 状态栏 ===
         self.status = QLabel("就绪 - 支持插入/查找/删除/前驱后继查找")  # 修复：初始化status
 
@@ -251,6 +270,7 @@ class BSTWindow(QMainWindow):
             self.draw_tree(self.tree.root)
 
     # === 绘制树形结构 ===
+    # 在BSTWindow类的draw_tree方法中添加点击事件处理
     def draw_tree(self, node, highlight=None):
         self.ax.clear()
         self.coords = {}
@@ -279,13 +299,15 @@ class BSTWindow(QMainWindow):
                 self.ax.plot([x, x2], [y, y2], "k-")
 
         # 节点绘制
+        self.node_artists = []  # 存储节点图形对象
         for n, (x, y) in self.coords.items():
             color = "#FF6347" if highlight is n else "#87CEFA"
             lw = 2 if highlight is n else 1
             circ = patches.Circle((x, y), 0.28, facecolor=color, edgecolor="black", linewidth=lw)
             self.ax.add_patch(circ)
             label = f"{n.val}" if n.freq == 1 else f"{n.val}-{n.freq}"
-            self.ax.text(x, y, label, ha="center", va="center", fontsize=9)
+            text = self.ax.text(x, y, label, ha="center", va="center", fontsize=9)
+            self.node_artists.append((circ, n))  # 保存图形和节点的对应关系
 
         self.ax.axis("off")
         xs = [p[0] for p in self.coords.values()]
@@ -293,7 +315,30 @@ class BSTWindow(QMainWindow):
         if xs and ys:
             self.ax.set_xlim(min(xs) - 1, max(xs) + 1)
             self.ax.set_ylim(min(ys) - 1, max(ys) + 1)
+        
+        # 绑定点击事件
+        self.canvas.mpl_connect('button_press_event', self.on_node_click)
         self.canvas.draw_idle()
+
+    def on_node_click(self, event):
+        """处理节点点击事件，实现点击删除功能"""
+        if event.inaxes != self.ax:
+            return
+        
+        # 检查点击位置是否在某个节点上
+        for artist, node in self.node_artists:
+            if artist.contains(event)[0]:
+                val = node.val
+                reply = QMessageBox.question(
+                    self, "确认删除", 
+                    f"确定要删除节点 {val} 吗？",
+                    QMessageBox.Yes | QMessageBox.No, 
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self.add_step(f"用户点击删除节点：{val}")
+                    self.tree.delete(val, step_callback=self.add_step)
+                break
 
     # === 辅助方法：计算树深度 ===
     def _compute_depth(self, root):
@@ -330,3 +375,72 @@ class BSTWindow(QMainWindow):
         self.step_text.verticalScrollBar().setValue(
             self.step_text.verticalScrollBar().maximum()
         )
+
+    # === 文件操作方法 ===
+# 添加文件操作方法
+    def save_data(self):
+        """将当前树数据保存到文件"""
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QFile, QIODevice, QTextStream
+        
+        if not self.tree.root:
+            QMessageBox.information(self, "提示", "树为空，无需保存")
+            return
+                
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存数据", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+            
+        if not file_path:
+            return
+                
+        # 获取中序遍历数据
+        data = self.tree.inorder()
+        try:
+            file = QFile(file_path)
+            if file.open(QIODevice.WriteOnly | QIODevice.Text):
+                stream = QTextStream(file)
+                stream << ",".join(map(str, data))
+                file.close()
+                self.add_step(f"数据已保存到 {file_path}")
+                QMessageBox.information(self, "成功", "数据保存成功")
+        except Exception as e:
+            self.add_step(f"保存失败：{str(e)}")
+            QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
+    def load_data(self):
+        """从文件加载数据"""
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QFile, QIODevice, QTextStream
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "加载数据", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            file = QFile(file_path)
+            if file.open(QIODevice.ReadOnly | QIODevice.Text):
+                stream = QTextStream(file)
+                content = stream.readAll()
+                file.close()
+                
+                # 清空现有树
+                self.tree.root = None
+                self.draw_tree(None)
+                
+                # 解析数据并插入
+                values = list(map(int, content.split(',')))
+                self.add_step(f"从 {file_path} 加载数据：{values}")
+                
+                for val in values:
+                    if 1 <= val <= 100:  # 检查值范围
+                        self.tree.insert(val, step_callback=self.add_step)
+                    else:
+                        self.add_step(f"跳过无效值 {val}（必须在1-100之间）")
+                
+                QMessageBox.information(self, "成功", f"已加载 {len(values)} 个数据")
+        except Exception as e:
+            self.add_step(f"加载失败：{str(e)}")
+            QMessageBox.critical(self, "错误", f"加载失败：{str(e)}")
