@@ -468,9 +468,11 @@ class AVLTree:
         self.root = None
         for i, v in enumerate(values):
             # 随机插入时跳过平衡检查的通知流程
-            self.insert(v, step_callback=step_callback, skip_balance_notify=True)
+            self.insert(v, step_callback=step_callback)
             if step_callback:
                 step_callback(f"插入第 {i+1} 个节点：{v}")
+        # 所有插入结束后，重新计算整棵树高度 + 平衡因子
+        self._recalculate_all(self.root)
         
         self.notify("build", None, extra=values)
         return values
