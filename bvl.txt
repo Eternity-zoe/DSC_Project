@@ -1,0 +1,1335 @@
+# core/avl_tree.py
+import random
+
+class AVLNode:
+    def __init__(self, val):
+        self.val = val
+        self.freq = 1
+        self.left = None
+        self.right = None
+        self.parent = None  # 新增父节点引用
+        self.height = 1  # AVL树节点高度
+
+class AVLTree:
+    def __init__(self):
+        self.root = None
+        self.listeners = []
+        self.state_list = []  # 状态列表用于回溯
+
+    def add_listener(self, func):
+        self.listeners.append(func)
+
+    def notify(self, action, node=None, extra=None):
+        for f in self.listeners:
+            f({"action": action, "node": node, "tree": self.root, "extra": extra})
+
+    # 辅助函数：获取节点高度
+    def _height(self, node):
+        return node.height if node else 0
+
+    # 辅助函数：计算平衡因子
+    def _balance_factor(self, node):
+        return self._height(node.left) - self._height(node.right) if node else 0
+
+    # 更新节点高度
+    def _update_height(self, node):
+        if node:
+            node.height = 1 + max(self._height(node.left), self._height(node.right))
+
+    # 右旋转（带通知：旋转前通知与旋转后通知）
+    def _right_rotate(self, y):
+        # 更新父节点引用
+        parent = y.parent
+        is_left_child = parent and parent.left == y
+
+        # 在实际改变指针之前，通知 GUI 记录旋转前状态
+        try:
+            if y and y.left:
+                self.notify("rotation_prepare", node=y, extra={
+                    "type": "right", 
+                    "pivot": y.left.val,
+                    "bf": self._balance_factor(y),
+                    "child_bf": self._balance_factor(y.left)
+                })
+        except Exception:
+            pass
+
+        x = y.left
+        T2 = x.right
+
+        # 旋转操作（标准）
+        x.right = y
+        y.left = T2
+        
+        # 更新父节点引用
+        x.parent = parent
+        y.parent = x
+        if T2:
+            T2.parent = y
+
+        if parent:
+            if is_left_child:
+                parent.left = x
+            else:
+                parent.right = x
+        else:
+            self.root = x  # 如果y是根节点，更新根
+
+        # 更新高度
+        self._update_height(y)
+        self._update_height(x)
+
+        # 旋转完成，通知 GUI 记录旋转后状态并启动动画
+        try:
+            self.notify("rotation", node=x, extra={"type": "right", "pivot": x.val})
+        except Exception:
+            pass
+
+        return x
+
+    # 左旋转（带通知）
+    def _left_rotate(self, x):
+        # 更新父节点引用
+        parent = x.parent
+        is_left_child = parent and parent.left == x
+
+        # 通知 GUI 记录旋转前状态
+        try:
+            if x and x.right:
+                self.notify("rotation_prepare", node=x, extra={
+                    "type": "left", 
+                    "pivot": x.right.val,
+                    "bf": self._balance_factor(x),
+                    "child_bf": self._balance_factor(x.right)
+                })
+        except Exception:
+            pass
+
+        y = x.right
+        T2 = y.left
+
+        # 旋转操作（标准）
+        y.left = x
+        x.right = T2
+        
+        # 更新父节点引用
+        y.parent = parent
+        x.parent = y
+        if T2:
+            T2.parent = x
+
+        if parent:
+            if is_left_child:
+                parent.left = y
+            else:
+                parent.right = y
+        else:
+            self.root = y  # 如果x是根节点，更新根
+
+        # 更新高度
+        self._update_height(x)
+        self._update_height(y)
+
+        if y.parent:
+            print(f"旋转后节点{y.val}的父节点为{y.parent.val}")
+        else:
+            print(f"旋转后节点{y.val}为根节点（父节点None）")
+
+        # 通知 GUI 旋转后状态
+        try:
+            self.notify("rotation", node=y, extra={"type": "left", "pivot": y.val})
+        except Exception:
+            pass
+
+        return y
+
+    # 插入节点
+    def insert(self, val, step_callback=None,skip_balance_notify=False):
+        path = []
+        
+        def _insert(node, val, parent=None):
+            if not node:
+                new_node = AVLNode(val)
+                new_node.parent = parent  # 设置父节点
+                path.append(new_node)
+                return new_node, path
+            
+            path.append(node)
+            if val < node.val:
+                node.left, _ = _insert(node.left, val, parent=node)
+            elif val > node.val:
+                node.right, _ = _insert(node.right, val, parent=node)
+            else:
+                # 值相等，增加频率
+                node.freq += 1
+                if step_callback:
+                    step_callback(f"节点 {val} 已存在，频率+1 -> {node.freq}")
+                return node, path
+
+            # 更新当前节点高度
+            self._update_height(node)
+            return node, path
+
+        
+        if step_callback:
+            step_callback(f"开始插入值：{val}")
+            
+        self.root, path = _insert(self.root, val)
+        
+        # 只有非随机生成时才执行这些通知
+        if not skip_balance_notify:
+            # 通知插入完成（BST阶段）
+            new_node = path[-1]
+            self.notify("bst_insert_complete", new_node, extra=path)
+            if step_callback:
+                step_callback(f"BST插入完成：节点 {val}")
+
+            # 从插入节点向上检查平衡
+            current = new_node
+            while current:
+                # 计算平衡因子
+                bf = self._balance_factor(current)
+                
+                # 通知检查当前节点
+                self.notify("check_balance", current, {
+                    "bf": bf,
+                    "is_balanced": abs(bf) <= 1,
+                    "path": path
+                })
+                if step_callback:
+                    status = "正常" if abs(bf) <= 1 else "失衡"
+                    step_callback(f"检查节点 {current.val}，平衡因子={bf}（{status}）")
+
+                # 处理失衡情况
+                if bf > 1:  # 左偏失衡
+                    left_child = current.left
+                    left_bf = self._balance_factor(left_child) if left_child else 0
+                    
+                    # 通知检测到左偏失衡
+                    self.notify("left_imbalance", current, {
+                        "bf": bf,
+                        "child": left_child,
+                        "child_bf": left_bf
+                    })
+                    
+                    if left_bf >= 0:  # 左左情况：右单旋
+                        if step_callback:
+                            step_callback(f"左左不平衡，对节点 {current.val} 执行右旋转")
+                        current = self._right_rotate(current)
+                    else:  # 左右情况：先左后右双旋
+                        if step_callback:
+                            step_callback(f"左右不平衡，先对 {left_child.val} 左旋转，再对 {current.val} 右旋转")
+                        current.left = self._left_rotate(left_child)
+                        current = self._right_rotate(current)
+                        
+                elif bf < -1:  # 右偏失衡
+                    right_child = current.right
+                    right_bf = self._balance_factor(right_child) if right_child else 0
+                    
+                    # 通知检测到右偏失衡
+                    self.notify("right_imbalance", current, {
+                        "bf": bf,
+                        "child": right_child,
+                        "child_bf": right_bf
+                    })
+                    
+                    if right_bf <= 0:  # 右右情况：左单旋
+                        if step_callback:
+                            step_callback(f"右右不平衡，对节点 {current.val} 执行左旋转")
+                        current = self._left_rotate(current)
+                    else:  # 右左情况：先右后左双旋
+                        if step_callback:
+                            step_callback(f"右左不平衡，先对 {right_child.val} 右旋转，再对 {current.val} 左旋转")
+                        current.right = self._right_rotate(right_child)
+                        current = self._left_rotate(current)
+
+                # 移动到父节点
+                next_node = current.parent
+                if next_node:
+                    self.notify("move_to_parent", current, {"next_node": next_node})
+                    if step_callback:
+                        step_callback(f"移动到父节点 {next_node.val} 继续检查")
+                current = next_node
+
+            # 通知平衡检查完成
+            self.notify("balance_complete", self.root, {})
+            if step_callback:
+                step_callback("所有节点检查完毕，树已平衡")
+
+        return self.root
+
+    # 删除节点（简化版，只展示修改部分）
+    def delete(self, val, step_callback=None):
+        path = []
+        deleted_node = None
+        
+        def _delete(node, val, parent=None):
+            nonlocal deleted_node
+            if not node:
+                return node, path
+                
+            path.append(node)
+            if val < node.val:
+                node.left, _ = _delete(node.left, val, node)
+            elif val > node.val:
+                node.right, _ = _delete(node.right, val, node)
+            else:
+                # 找到要删除的节点
+                deleted_node = node
+                if step_callback:
+                    step_callback(f"找到要删除的节点 {val}")
+                    
+                # 频率大于1，只减少频率
+                if node.freq > 1:
+                    node.freq -= 1
+                    if step_callback:
+                        step_callback(f"节点 {val} 频率-1 -> {node.freq}")
+                    return node, path
+
+                # 叶子节点或只有一个子节点
+                if not node.left:
+                    return node.right, path
+                elif not node.right:
+                    return node.left, path
+
+                # 有两个子节点，找前驱（左子树最大值）
+                temp = self._get_max(node.left)
+                if step_callback:
+                    step_callback(f"使用前驱节点 {temp.val} 替换待删除节点")
+                    
+                node.val = temp.val
+                node.freq = temp.freq
+                
+                # 删除前驱节点
+                node.left, _ = _delete(node.left, temp.val, node)
+
+            # 如果树只有一个节点，删除后为空
+            if not node:
+                return node, path
+
+            # 更新父节点引用
+            if node.left:
+                node.left.parent = node
+            if node.right:
+                node.right.parent = node
+                
+            # 更新高度
+            self._update_height(node)
+            return node, path
+
+
+        if step_callback:
+            step_callback(f"开始删除值：{val}")
+            
+        self.root, path = _delete(self.root, val)
+        
+        # 通知删除完成（BST阶段）
+        self.notify("bst_delete_complete", deleted_node, extra=path)
+        if step_callback:
+            step_callback(f"BST删除完成：节点 {val}")
+
+        # 从删除节点的父节点向上检查平衡
+        current = path[-1].parent if path else None
+        while current:
+            # 计算平衡因子
+            bf = self._balance_factor(current)
+            
+            # 通知检查当前节点
+            self.notify("check_balance", current, {
+                "bf": bf,
+                "is_balanced": abs(bf) <= 1,
+                "path": path
+            })
+            if step_callback:
+                status = "正常" if abs(bf) <= 1 else "失衡"
+                step_callback(f"检查节点 {current.val}，平衡因子={bf}（{status}）")
+
+            # 处理失衡情况（与插入相同的逻辑）
+            if bf > 1:  # 左偏失衡
+                left_child = current.left
+                left_bf = self._balance_factor(left_child) if left_child else 0
+                
+                self.notify("left_imbalance", current, {
+                    "bf": bf,
+                    "child": left_child,
+                    "child_bf": left_bf
+                })
+                
+                if left_bf >= 0:  # 左左情况：右单旋
+                    if step_callback:
+                        step_callback(f"左左不平衡，对节点 {current.val} 执行右旋转")
+                    current = self._right_rotate(current)
+                else:  # 左右情况：先左后右双旋
+                    if step_callback:
+                        step_callback(f"左右不平衡，先对 {left_child.val} 左旋转，再对 {current.val} 右旋转")
+                    current.left = self._left_rotate(left_child)
+                    current = self._right_rotate(current)
+                    
+            elif bf < -1:  # 右偏失衡
+                right_child = current.right
+                right_bf = self._balance_factor(right_child) if right_child else 0
+                
+                self.notify("right_imbalance", current, {
+                    "bf": bf,
+                    "child": right_child,
+                    "child_bf": right_bf
+                })
+                
+                if right_bf <= 0:  # 右右情况：左单旋
+                    if step_callback:
+                        step_callback(f"右右不平衡，对节点 {current.val} 执行左旋转")
+                    current = self._left_rotate(current)
+                else:  # 右左情况：先右后左双旋
+                    if step_callback:
+                        step_callback(f"右左不平衡，先对 {right_child.val} 右旋转，再对 {current.val} 左旋转")
+                    current.right = self._right_rotate(right_child)
+                    current = self._left_rotate(current)
+
+            # 移动到父节点
+            next_node = current.parent
+            if next_node:
+                self.notify("move_to_parent", current, {"next_node": next_node})
+                if step_callback:
+                    step_callback(f"移动到父节点 {next_node.val} 继续检查")
+            current = next_node
+
+        # 通知平衡检查完成
+        self.notify("balance_complete", self.root, {})
+        if step_callback:
+            step_callback("所有节点检查完毕，树已平衡")
+        
+        return self.root
+
+    # 查找节点
+    def search(self, val, step_callback=None):
+        if step_callback:
+            step_callback(f"开始查找值：{val}")
+            
+        cur = self.root
+        path = []
+        while cur:
+            path.append(cur)
+            if step_callback:
+                step_callback(f"比较节点 {cur.val}")
+                
+            if val == cur.val:
+                self.notify("found", cur, extra=path)
+                if step_callback:
+                    step_callback(f"找到节点 {val}（频率：{cur.freq}）")
+                return cur
+            elif val < cur.val:
+                cur = cur.left
+                if step_callback and cur:
+                    step_callback(f"前往左子树继续查找")
+            else:
+                cur = cur.right
+                if step_callback and cur:
+                    step_callback(f"前往右子树继续查找")
+
+        self.notify("not_found", None, extra=path)
+        if step_callback:
+            step_callback(f"未找到节点 {val}")
+        return None
+
+    # 删除节点
+    def delete(self, val, step_callback=None):
+        if step_callback:
+            step_callback(f"开始删除值：{val}")
+            
+        path = []
+        
+        def _delete(node, val):
+            if not node:
+                return node, path
+                
+            path.append(node)
+            if val < node.val:
+                node.left, _ = _delete(node.left, val)
+            elif val > node.val:
+                node.right, _ = _delete(node.right, val)
+            else:
+                # 找到要删除的节点
+                if step_callback:
+                    step_callback(f"找到要删除的节点 {val}")
+                    
+                # 频率大于1，只减少频率
+                if node.freq > 1:
+                    node.freq -= 1
+                    if step_callback:
+                        step_callback(f"节点 {val} 频率-1 -> {node.freq}")
+                    return node, path
+
+                # 叶子节点或只有一个子节点
+                if not node.left:
+                    return node.right, path
+                elif not node.right:
+                    return node.left, path
+
+                # 有两个子节点，找前驱（左子树最大值）
+                temp = self._get_max(node.left)
+                if step_callback:
+                    step_callback(f"使用前驱节点 {temp.val} 替换待删除节点")
+                    
+                node.val = temp.val
+                node.freq = temp.freq
+                
+                # 删除前驱节点
+                node.left, _ = _delete(node.left, temp.val)
+
+            # 如果树只有一个节点，删除后为空
+            if not node:
+                return node, path
+
+            # 更新高度
+            self._update_height(node)
+
+            # 计算平衡因子
+            balance = self._balance_factor(node)
+
+            # 左左
+            if balance > 1 and self._balance_factor(node.left) >= 0:
+                if step_callback:
+                    step_callback(f"左左不平衡，对节点 {node.val} 执行右旋转")
+                return self._right_rotate(node), path
+
+            # 左右
+            if balance > 1 and self._balance_factor(node.left) < 0:
+                if step_callback:
+                    step_callback(f"左右不平衡，先对 {node.left.val} 左旋转，再对 {node.val} 右旋转")
+                node.left = self._left_rotate(node.left)
+                return self._right_rotate(node), path
+
+            # 右右
+            if balance < -1 and self._balance_factor(node.right) <= 0:
+                if step_callback:
+                    step_callback(f"右右不平衡，对节点 {node.val} 执行左旋转")
+                return self._left_rotate(node), path
+
+            # 右左
+            if balance < -1 and self._balance_factor(node.right) > 0:
+                if step_callback:
+                    step_callback(f"右左不平衡，先对 {node.right.val} 右旋转，再对 {node.val} 左旋转")
+                node.right = self._right_rotate(node.right)
+                return self._left_rotate(node), path
+
+            return node, path
+
+        
+
+    # 中序遍历
+    def inorder(self):
+        res = []
+        def dfs(node):
+            if not node:
+                return
+            dfs(node.left)
+            for _ in range(node.freq):
+                res.append(node.val)
+            dfs(node.right)
+        dfs(self.root)
+        return res
+
+    # 随机生成AVL树
+    def build_random(self, n=7, value_range=(1, 100), step_callback=None):
+        low, high = value_range
+        if n <= 0:
+            self.root = None
+            self.notify("build", None, extra=[])
+            if step_callback:
+                step_callback("清空树，生成空AVL树")
+            return []
+        
+        rng = high - low + 1
+        if n <= rng:
+            values = random.sample(range(low, high + 1), n)
+        else:
+            values = random.choices(range(low, high + 1), k=n)
+        random.shuffle(values)
+        
+        if step_callback:
+            step_callback(f"随机生成值序列：{values}")
+        
+        self.root = None
+        for i, v in enumerate(values):
+            # 随机插入时跳过平衡检查的通知流程
+            self.insert(v, step_callback=step_callback, skip_balance_notify=True)
+            if step_callback:
+                step_callback(f"插入第 {i+1} 个节点：{v}")
+        
+        self.notify("build", None, extra=values)
+        return values
+
+    # 高级查找功能
+    def lower_bound(self, val, step_callback=None):
+        if step_callback:
+            step_callback(f"查找值 {val} 的lower_bound（首个≥{val}的节点）")
+            
+        cur = self.root
+        res = None
+        path = []
+        while cur:
+            path.append(cur)
+            if step_callback:
+                step_callback(f"比较节点 {cur.val}")
+                
+            if cur.val >= val:
+                res = cur
+                cur = cur.left
+                if step_callback:
+                    step_callback(f"当前节点 {res.val} ≥ {val}，继续向左查找更小的符合条件节点")
+            else:
+                cur = cur.right
+                if step_callback:
+                    step_callback(f"当前节点 {cur.val if cur else 'None'} < {val}，继续向右查找")
+        
+        self.notify("trace_path", res, extra=path)
+        return res, path
+
+    def successor(self, val, step_callback=None):
+        if step_callback:
+            step_callback(f"查找值 {val} 的后继（中序遍历后一个节点）")
+            
+        path = []
+        cur = self.root
+        succ = None
+        while cur:
+            path.append(cur)
+            if step_callback:
+                step_callback(f"比较节点 {cur.val}")
+                
+            if val < cur.val:
+                succ = cur
+                cur = cur.left
+                if step_callback:
+                    step_callback(f"当前节点 {succ.val} 可能是后继，继续向左查找更小的候选")
+            elif val > cur.val:
+                cur = cur.right
+                if step_callback:
+                    step_callback(f"当前节点 {cur.val if cur else 'None'} 小于目标，继续向右查找")
+            else:
+                if step_callback:
+                    step_callback(f"找到目标节点 {val}，寻找其右子树最小值")
+                # 找到节点，后继是右子树的最小值
+                if cur.right:
+                    succ = self._get_min(cur.right)
+                    path.append(succ)
+                break
+        
+        self.notify("trace_path", succ, extra=path)
+        return succ, path
+
+    def predecessor(self, val, step_callback=None):
+        if step_callback:
+            step_callback(f"查找值 {val} 的前驱（中序遍历前一个节点）")
+            
+        path = []
+        cur = self.root
+        pred = None
+        while cur:
+            path.append(cur)
+            if step_callback:
+                step_callback(f"比较节点 {cur.val}")
+                
+            if val > cur.val:
+                pred = cur
+                cur = cur.right
+                if step_callback:
+                    step_callback(f"当前节点 {pred.val} 可能是前驱，继续向右查找更大的候选")
+            elif val < cur.val:
+                cur = cur.left
+                if step_callback:
+                    step_callback(f"当前节点 {cur.val if cur else 'None'} 大于目标，继续向左查找")
+            else:
+                if step_callback:
+                    step_callback(f"找到目标节点 {val}，寻找其左子树最大值")
+                # 找到节点，前驱是左子树的最大值
+                if cur.left:
+                    pred = self._get_max(cur.left)
+                    path.append(pred)
+                break
+        
+        self.notify("trace_path", pred, extra=path)
+        return pred, path
+
+    # 辅助函数：获取最小值节点
+    def _get_min(self, node):
+        current = node
+        while current.left:
+            current = current.left
+        return current
+
+    # 辅助函数：获取最大值节点
+    def _get_max(self, node):
+        current = node
+        while current.right:
+            current = current.right
+        return current
+
+# gui/avl_window.py
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QLabel, QLineEdit, QMessageBox, QSpinBox, QTextEdit, QFileDialog
+)
+from PySide6.QtCore import QTimer, QDateTime, QIODevice, QTextStream
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.patches as patches
+from core.avl_tree import AVLTree
+
+class AVLWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("AVL树可视化 - 自平衡二叉搜索树")
+        self.resize(1400, 700)
+
+        # 初始化核心数据结构
+        self.tree = AVLTree()
+        self.tree.add_listener(self.on_update)
+
+        # 初始化图形对象
+        self.fig = Figure(figsize=(8, 6), dpi=100)
+        self.canvas = FigureCanvas(self.fig)
+        self.ax = self.fig.add_subplot(111)
+        self.coords = {}  # 节点坐标映射
+        self.node_artists = []  # 用于存储节点图形对象，实现点击功能
+
+        # 初始化动画相关变量
+        self.path_nodes = []
+        self.path_index = 0
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._animate_path)
+
+        # 步骤记录面板
+        self.step_text = QTextEdit()
+        self.step_text.setReadOnly(True)
+        self.step_text.setPlaceholderText("操作步骤将显示在这里...")
+
+        # 主布局：左右分栏
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QHBoxLayout(central)
+
+        # 左侧：树图和控件
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        main_layout.addWidget(left_panel, 7)
+        main_layout.addWidget(self.step_text, 3)
+
+        # 左侧控件区：基础操作
+        ctrl = QHBoxLayout()
+        self.inputVal = QLineEdit()
+        self.inputVal.setPlaceholderText("输入整数（1-100）")
+        self.inputVal.setMaximumWidth(120)
+        ctrl.addWidget(self.inputVal)
+
+        self.btn_insert = QPushButton("插入")
+        self.btn_insert.clicked.connect(self.insert)
+        ctrl.addWidget(self.btn_insert)
+        
+        self.btn_search = QPushButton("查找")
+        self.btn_search.clicked.connect(self.search)
+        ctrl.addWidget(self.btn_search)
+        
+        self.btn_delete = QPushButton("删除")
+        self.btn_delete.clicked.connect(self.delete)
+        ctrl.addWidget(self.btn_delete)
+        
+        self.btn_inorder = QPushButton("中序遍历")
+        self.btn_inorder.clicked.connect(self.show_inorder)
+        ctrl.addWidget(self.btn_inorder)
+
+        # 随机生成控件
+        ctrl.addWidget(QLabel("随机节点数："))
+        self.spinN = QSpinBox()
+        self.spinN.setRange(1, 20)
+        self.spinN.setValue(10)
+        self.spinN.setMaximumWidth(60)
+        ctrl.addWidget(self.spinN)
+        
+        self.btn_random = QPushButton("随机生成 AVL")
+        self.btn_random.clicked.connect(self.random_build)
+        ctrl.addWidget(self.btn_random)
+
+        # 左侧控件区：高级功能
+        adv = QHBoxLayout()
+        adv.addWidget(QLabel("高级查找："))
+        self.btn_predecessor = QPushButton("查找前驱")
+        self.btn_predecessor.clicked.connect(self.find_predecessor)
+        adv.addWidget(self.btn_predecessor)
+        
+        self.btn_successor = QPushButton("查找后继")
+        self.btn_successor.clicked.connect(self.find_successor)
+        adv.addWidget(self.btn_successor)
+        
+        self.btn_lower_bound = QPushButton("lower_bound（首个≥值）")
+        self.btn_lower_bound.clicked.connect(self.find_lower_bound)
+        adv.addWidget(self.btn_lower_bound)
+
+        # 文件操作布局
+        file_ops = QHBoxLayout()
+        file_ops.addWidget(QLabel("文件操作："))
+        self.btn_save = QPushButton("保存数据")
+        self.btn_save.clicked.connect(self.save_data)
+        file_ops.addWidget(self.btn_save)
+        
+        self.btn_load = QPushButton("加载数据")
+        self.btn_load.clicked.connect(self.load_data)
+        file_ops.addWidget(self.btn_load)
+
+        # 状态栏
+        self.status = QLabel("就绪 - AVL树自动保持平衡，支持旋转操作可视化")
+
+        # 组装左侧布局
+        left_layout.addWidget(self.canvas)
+        left_layout.addLayout(ctrl)
+        left_layout.addWidget(QLabel("——— 高级查找功能 ———"))
+        left_layout.addLayout(adv)
+        left_layout.addWidget(QLabel("——— 文件操作 ———"))
+        left_layout.addLayout(file_ops)
+        left_layout.addWidget(self.status)
+
+        # 初始绘制空树
+        self.draw_tree(None)
+
+        self.animating = False  # 动画状态标记
+        self.animation_steps = 20  # 动画总步数
+        self.current_step = 0  # 当前动画步数
+        self.start_coords = {}  # 旋转前节点坐标
+        self.target_coords = {}  # 旋转后节点坐标
+
+    # 基础操作
+    def insert(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"开始插入值：{val}")
+        self.tree.insert(val, step_callback=self.add_step)
+
+    def search(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"开始搜索值：{val}")
+        self.tree.search(val, step_callback=self.add_step)
+
+    def delete(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"开始删除值：{val}")
+        self.tree.delete(val, step_callback=self.add_step)
+
+    # 中序遍历
+    def show_inorder(self):
+        if not self.tree.root:
+            QMessageBox.warning(self, "错误", "树为空")
+            return
+        seq = self.tree.inorder()
+        seq_text = " -> ".join(map(str, seq))
+        self.status.setText(f"中序遍历（递增序列）: {seq_text}")
+        self.add_step(f"中序遍历结果（AVL特性：递增）：{seq_text}")
+
+    # 随机生成AVL
+    def random_build(self):
+        n = self.spinN.value()
+        self.add_step(f"开始随机生成 {n} 个节点的AVL树（值范围：1-100）")
+        values = self.tree.build_random(n=n, value_range=(1, 100), step_callback=self.add_step)
+        self.add_step(f"生成完成，值序列：{values}")
+        self.status.setText(f"随机生成 {n} 个节点: {values}")
+
+    # 高级查找功能
+    def find_predecessor(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的前驱（中序遍历前一个节点）")
+        node, path = self.tree.predecessor(val, step_callback=self.add_step)
+        self._animate_special_path("前驱", val, node, path)
+
+    def find_successor(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的后继（中序遍历后一个节点）")
+        node, path = self.tree.successor(val, step_callback=self.add_step)
+        self._animate_special_path("后继", val, node, path)
+
+    def find_lower_bound(self):
+        val = self._get_int()
+        if val is None:
+            return
+        self.add_step(f"查找值 {val} 的lower_bound（首个≥{val}的节点）")
+        node, path = self.tree.lower_bound(val, step_callback=self.add_step)
+        self._animate_special_path("lower_bound", val, node, path)
+
+    # 动画逻辑
+    def _animate_special_path(self, op, val, node, path):
+        if not path:
+            self.status.setText(f"{op}({val})：空树")
+            return
+        self.path_nodes = path
+        self.path_index = 0
+        self.timer.stop()
+        self.timer.timeout.disconnect()
+        self.timer.timeout.connect(lambda: self._animate_trace(op, val, node))
+        self.timer.start(450)
+
+    def _animate_trace(self, op, val, node):
+        if self.path_index < len(self.path_nodes):
+            n = self.path_nodes[self.path_index]
+            self.draw_tree(self.tree.root, highlight=n)
+            self.add_step(f"{op}查找步骤 {self.path_index+1}：比较节点 {n.val}（当前路径：{[x.val for x in self.path_nodes[:self.path_index+1]]}）")
+            self.path_index += 1
+        else:
+            self.timer.stop()
+            if node:
+                self.status.setText(f"{op}({val}) = {node.val} (freq={node.freq})")
+                self.draw_tree(self.tree.root, highlight=node)
+            else:
+                self.status.setText(f"{op}({val})：未找到结果")
+                self.draw_tree(self.tree.root)
+
+    def _animate_path(self):
+        if self.path_index >= len(self.path_nodes):
+            self.timer.stop()
+            self.draw_tree(self.tree.root)
+            return
+        node = self.path_nodes[self.path_index]
+        self.draw_tree(self.tree.root, highlight=node)
+        self.path_index += 1
+
+    # 数据更新回调
+    # 修改数据更新回调，处理新增的通知类型
+    def on_update(self, state):
+        action = state.get("action")
+        node = state.get("node")
+        extra = state.get("extra") or []
+
+        # BST插入完成
+        if action == "bst_insert_complete":
+            self.status.setText(f"BST插入完成：节点 {node.val}")
+            self.add_step(f"BST插入完成，准备检查平衡")
+            self.draw_tree(self.tree.root, highlight=node, show_bf=True)
+            return
+
+        # BST删除完成
+        if action == "bst_delete_complete":
+            val = node.val if node else "?"
+            self.status.setText(f"BST删除完成：节点 {val}")
+            self.add_step(f"BST删除完成，准备检查平衡")
+            self.draw_tree(self.tree.root, show_bf=True)
+            return
+
+        # 检查节点平衡
+        if action == "check_balance":
+            bf = extra.get("bf")
+            is_balanced = extra.get("is_balanced")
+            status = "正常" if is_balanced else "失衡"
+            self.status.setText(f"检查节点 {node.val}，平衡因子={bf}（{status}）")
+            self.add_step(f"节点 {node.val} 平衡因子为 {bf}（{status}）")
+            self.draw_tree(self.tree.root, highlight=node, show_bf=True)
+            # 创建状态快照
+            self.state_list.append({
+                "tree": self.tree.root,
+                "highlight": node,
+                "bf": bf,
+                "status": status
+            })
+            return
+
+        # 左偏失衡
+        if action == "left_imbalance":
+            bf = extra.get("bf")
+            child = extra.get("child")
+            child_bf = extra.get("child_bf")
+            self.status.setText(f"左偏失衡：节点 {node.val} (bf={bf})，左子节点 {child.val} (bf={child_bf})")
+            self.add_step(f"检测到左偏失衡，准备旋转调整")
+            self.draw_tree(self.tree.root, highlight_pair=[node, child], show_bf=True)
+            return
+
+        # 右偏失衡
+        if action == "right_imbalance":
+            bf = extra.get("bf")
+            child = extra.get("child")
+            child_bf = extra.get("child_bf")
+            self.status.setText(f"右偏失衡：节点 {node.val} (bf={bf})，右子节点 {child.val} (bf={child_bf})")
+            self.add_step(f"检测到右偏失衡，准备旋转调整")
+            self.draw_tree(self.tree.root, highlight_pair=[node, child], show_bf=True)
+            return
+
+        # 移动到父节点
+        if action == "move_to_parent":
+            next_node = extra.get("next_node")
+            self.status.setText(f"移动到父节点 {next_node.val} 继续检查")
+            self.draw_tree(self.tree.root, highlight=next_node, show_bf=True)
+            return
+
+        # 平衡检查完成
+        if action == "balance_complete":
+            self.status.setText("所有节点检查完毕，树已平衡")
+            self.add_step("树已平衡，操作完成")
+            self.draw_tree(self.tree.root, show_bf=True)
+            return
+
+
+        # 如果是旋转准备：记录当前的坐标作为动画起点
+        if action == "rotation_prepare":
+            # 先把当前（旋转前）画出来，记录 coords 作为 start_coords
+            self.add_step(f"检测到将要进行 {extra.get('type')} 旋转，pivot={extra.get('pivot')}")
+            # 绘制当前树（旋转前），以便 coords 可用
+            self.draw_tree(self.tree.root)
+            # 复制当前 coords 为起点
+            self.start_coords = self.coords.copy()
+            # 额外记录高亮信息（旋转相关）
+            self.rotation_highlight = {"type": extra.get("type"), "pivot": extra.get("pivot")}
+            return
+
+        # 如果是旋转完成：记录目标坐标并启动动画
+        if action == "rotation":
+            self.add_step(f"旋转完成：{extra.get('type')}，pivot={extra.get('pivot')}，开始动画过渡")
+            # 绘制最新树（此时数据结构已更新），记录 target_coords
+            self.draw_tree(self.tree.root)
+            self.target_coords = self.coords.copy()
+            # 如果 start_coords 为空（没有收到 prepare），则用当前 coords 直接显示（无动画）
+            if not self.start_coords:
+                self.draw_tree(self.tree.root)
+                return
+
+            # 保证动画参数就位，启动动画计时器
+            self.animating = True
+            self.current_step = 0
+            # 创建/重用 animation_timer
+            try:
+                self.animation_timer.stop()
+            except Exception:
+                pass
+            self.animation_timer = QTimer()
+            self.animation_timer.timeout.connect(self._animate_rotation)
+            self.animation_timer.start(30)  # 约 30ms 一帧 -> ~33fps
+            # 清除 start_coords 以免误用（下一次旋转重新准备）
+            # 注意：不要立刻清空 target_coords，因为动画需要它
+            self.start_coords, self.rotation_highlight = self.start_coords, getattr(self, "rotation_highlight", None)
+            return
+
+        # 处理其它 action（insert, delete, found, not_found 等）
+        if action == "insert":
+            self.status.setText(f"插入节点 {node.val}（高度：{node.height}）")
+            self.add_step(f"插入成功：节点 {node.val}（高度：{node.height}）")
+            self.draw_tree(self.tree.root, highlight=node)
+        elif action == "increase_freq":
+            self.status.setText(f"节点 {node.val} 频率 +1 -> {node.freq}")
+            self.add_step(f"节点 {node.val} 频率+1（当前：{node.freq}）")
+            self.draw_tree(self.tree.root, highlight=node)
+        elif action == "decrease_freq":
+            self.status.setText(f"节点 {node.val} 频率 -1 -> {node.freq}")
+            self.add_step(f"节点 {node.val} 频率-1（当前：{node.freq}）")
+            self.draw_tree(self.tree.root, highlight=node)
+        elif action == "delete":
+            self.status.setText(f"删除节点 {node.val if node else '?'}")
+            self.add_step(f"删除成功：节点 {node.val if node else '?'}")
+            self.draw_tree(self.tree.root)
+        elif action == "found":
+            self.status.setText(f"查找成功: {node.val} (freq={node.freq}, height={node.height})")
+            self.add_step(f"查找成功：{node.val}（频率：{node.freq}，高度：{node.height}）")
+            self.draw_tree(self.tree.root, highlight=node)
+        elif action == "not_found":
+            self.status.setText("查找失败")
+            self.add_step("查找失败：未找到目标节点")
+            self.draw_tree(self.tree.root)
+        elif action == "build":
+            self.status.setText("随机生成 AVL 树完成")
+            self.add_step("随机生成AVL树完成")
+            self.draw_tree(self.tree.root)
+        elif action == "trace_path":
+            pass  # 路径追踪在动画中处理
+
+    # 修改动画旋转方法，支持显示平衡因子
+    def _animate_rotation(self):
+        """旋转动画帧更新"""
+        # 当动画结束
+        if self.current_step >= self.animation_steps:
+            self.animating = False
+            try:
+                self.animation_timer.stop()
+            except Exception:
+                pass
+            # 完成后绘制最终树（确保连线/文本正确）
+            self.draw_tree(self.tree.root)
+            # 清空 start/target
+            self.start_coords = {}
+            self.target_coords = {}
+            return
+
+        # 计算当前帧的插值坐标
+        self.ax.clear()
+        self.node_artists = []
+        t = (self.current_step + 1) / float(self.animation_steps)  # 0~1之间的插值因子
+
+        # 绘制连接线（使用过渡坐标）
+        keys = set(list(self.start_coords.keys()) + list(self.target_coords.keys()))
+        for n in keys:
+            if n not in self.start_coords or n not in self.target_coords:
+                continue
+
+            start_x, start_y = self.start_coords[n]
+            target_x, target_y = self.target_coords[n]
+            x = start_x + (target_x - start_x) * t
+            y = start_y + (target_y - start_y) * t
+
+            # 绘制到子节点的连线
+            if n.left and n.left in self.target_coords and n.left in self.start_coords:
+                lx = self.start_coords[n.left][0] + (self.target_coords[n.left][0] - self.start_coords[n.left][0]) * t
+                ly = self.start_coords[n.left][1] + (self.target_coords[n.left][1] - self.start_coords[n.left][1]) * t
+                self.ax.plot([x, lx], [y, ly], "k-")
+            if n.right and n.right in self.target_coords and n.right in self.start_coords:
+                rx = self.start_coords[n.right][0] + (self.target_coords[n.right][0] - self.start_coords[n.right][0]) * t
+                ry = self.start_coords[n.right][1] + (self.target_coords[n.right][1] - self.start_coords[n.right][1]) * t
+                self.ax.plot([x, rx], [y, ry], "k-")
+
+        # 绘制节点（使用过渡坐标）
+        for n in keys:
+            if n not in self.start_coords or n not in self.target_coords:
+                continue
+
+            start_x, start_y = self.start_coords[n]
+            target_x, target_y = self.target_coords[n]
+            x = start_x + (target_x - start_x) * t
+            y = start_y + (target_y - start_y) * t
+
+            # 节点样式：高亮旋转相关节点
+            is_pivot = False
+            if hasattr(self, "rotation_highlight") and self.rotation_highlight:
+                if self.rotation_highlight.get("pivot") == n.val:
+                    is_pivot = True
+
+            color = "#FF6347" if is_pivot else "#87CEFA"
+            circ = patches.Circle((x, y), 0.35, facecolor=color, edgecolor="black", linewidth=1)
+            self.ax.add_patch(circ)
+
+            # 节点文本（包含平衡因子）
+            label = f"{n.val}"
+            if n.freq > 1:
+                label += f"-{n.freq}"
+            label += f"\nh={n.height}"
+            # 显示平衡因子
+            bf = self.tree._balance_factor(n)
+            label += f"\nbf={bf}"
+            
+            self.ax.text(x, y, label, ha="center", va="center", fontsize=8)
+
+        self.ax.axis("off")
+        self.canvas.draw_idle()
+        self.current_step += 1
+
+    # 修改节点绘制方法，支持显示平衡因子
+    def draw_tree(self, node, highlight=None, highlight_pair=None, show_bf=False, animate=False):
+        self.ax.clear()
+        self.coords = {}
+        self.node_artists = []  # 重置节点图形列表
+        
+        if animate and not self.animating:
+            # 记录旋转前的坐标作为动画起点
+            self.start_coords = self.coords.copy()
+            self.animating = True
+            self.current_step = 0
+            
+            # 计算旋转后的目标坐标
+            temp_coords = {}
+            max_depth = self._compute_depth(node)
+            
+            def layout(n, x, depth, span):
+                if not n:
+                    return
+                temp_coords[n] = (x, -depth)
+                gap = span / 2
+                layout(n.left, x - gap, depth + 1, gap)
+                layout(n.right, x + gap, depth + 1, gap)
+            
+            layout(node, 0, 0, 8)
+            self.target_coords = temp_coords
+            
+            # 启动动画计时器
+            self.animation_timer = QTimer()
+            self.animation_timer.timeout.connect(self._animate_rotation)
+            self.animation_timer.start(30)  # 约60fps
+            return
+
+        if not node:
+            self.ax.text(0.5, 0.5, "(空树)", ha="center", va="center", fontsize=16, color="gray")
+            self.canvas.draw_idle()
+            return
+
+        max_depth = self._compute_depth(node)
+        def layout(n, x, depth, span):
+            if not n:
+                return
+            self.coords[n] = (x, -depth)
+            gap = span / 2
+            layout(n.left, x - gap, depth + 1, gap)
+            layout(n.right, x + gap, depth + 1, gap)
+        layout(node, 0, 0, 8)
+
+        # 连线
+        for n, (x, y) in self.coords.items():
+            if n.left:
+                x2, y2 = self.coords[n.left]
+                self.ax.plot([x, x2], [y, y2], "k-")
+            if n.right:
+                x2, y2 = self.coords[n.right]
+                self.ax.plot([x, x2], [y, y2], "k-")
+
+        # 节点绘制（显示高度和平衡因子）
+        for n, (x, y) in self.coords.items():
+            # 确定节点颜色
+            if highlight_pair and n in highlight_pair:
+                color = "#FF6347"  # 红色：失衡节点对
+                lw = 2
+            elif highlight is n:
+                color = "#32CD32"  # 绿色：当前检查节点
+                lw = 2
+            else:
+                color = "#87CEFA"  # 蓝色：普通节点
+                lw = 1
+
+            circ = patches.Circle((x, y), 0.35, facecolor=color, edgecolor="black", linewidth=lw)
+            self.ax.add_patch(circ)
+            
+            # 显示值、频率、高度和平衡因子
+            label = f"{n.val}"
+            if n.freq > 1:
+                label += f"-{n.freq}"
+            label += f"\nh={n.height}"
+            if show_bf:
+                bf = self.tree._balance_factor(n)
+                label += f"\nbf={bf}"
+                
+            text = self.ax.text(x, y, label, ha="center", va="center", fontsize=8)
+            self.node_artists.append((circ, n))
+
+        # 绑定点击事件
+        self.canvas.mpl_connect('button_press_event', self.on_node_click)
+        
+        self.ax.axis("off")
+        xs = [p[0] for p in self.coords.values()]
+        ys = [p[1] for p in self.coords.values()]
+        if xs and ys:
+            self.ax.set_xlim(min(xs) - 1, max(xs) + 1)
+            self.ax.set_ylim(min(ys) - 1, max(ys) + 1)
+        self.canvas.draw_idle()
+
+    
+    # 节点点击事件（删除节点）
+    def on_node_click(self, event):
+        if event.inaxes != self.ax:
+            return
+        
+        for artist, node in self.node_artists:
+            if artist.contains(event)[0]:
+                val = node.val
+                reply = QMessageBox.question(
+                    self, "确认删除", 
+                    f"确定要删除节点 {val} 吗？",
+                    QMessageBox.Yes | QMessageBox.No, 
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self.add_step(f"用户点击删除节点：{val}")
+                    self.tree.delete(val, step_callback=self.add_step)
+                break
+
+    # 计算树深度
+    def _compute_depth(self, root):
+        if not root:
+            return 0
+        q = [(root, 1)]
+        maxd = 1
+        for n, d in q:
+            maxd = max(maxd, d)
+            if n.left:
+                q.append((n.left, d + 1))
+            if n.right:
+                q.append((n.right, d + 1))
+        return maxd
+
+    # 获取输入整数
+    def _get_int(self):
+        try:
+            val = int(self.inputVal.text().strip())
+            if val < 1 or val > 100:
+                QMessageBox.warning(self, "范围错误", "请输入1-100之间的整数！")
+                return None
+            return val
+        except ValueError:
+            QMessageBox.warning(self, "输入错误", "请输入有效的整数！")
+            return None
+
+    # 步骤记录方法
+    def add_step(self, text):
+        current_time = QDateTime.currentDateTime().toString("HH:mm:ss")
+        self.step_text.append(f"[{current_time}] {text}")
+        self.step_text.verticalScrollBar().setValue(
+            self.step_text.verticalScrollBar().maximum()
+        )
+
+    # 文件操作
+    def save_data(self):
+        if not self.tree.root:
+            QMessageBox.information(self, "提示", "树为空，无需保存")
+            return
+            
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存数据", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        
+        if not file_path:
+            return
+            
+        data = self.tree.inorder()
+        try:
+            from PySide6.QtCore import QFile
+            file = QFile(file_path)
+            if file.open(QIODevice.WriteOnly | QIODevice.Text):
+                stream = QTextStream(file)
+                stream << ",".join(map(str, data))
+                file.close()
+                self.add_step(f"数据已保存到 {file_path}")
+                QMessageBox.information(self, "成功", "数据保存成功")
+        except Exception as e:
+            self.add_step(f"保存失败：{str(e)}")
+            QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
+
+    def load_data(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "加载数据", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            from PySide6.QtCore import QFile
+            file = QFile(file_path)
+            if file.open(QIODevice.ReadOnly | QIODevice.Text):
+                stream = QTextStream(file)
+                content = stream.readAll()
+                file.close()
+                
+                # 清空现有树
+                self.tree.root = None
+                self.draw_tree(None)
+                
+                # 解析数据并插入
+                values = list(map(int, content.split(',')))
+                self.add_step(f"从 {file_path} 加载数据：{values}")
+                
+                for val in values:
+                    if 1 <= val <= 100:
+                        self.tree.insert(val, step_callback=self.add_step)
+                    else:
+                        self.add_step(f"跳过无效值 {val}（必须在1-100之间）")
+                
+                QMessageBox.information(self, "成功", f"已加载 {len(values)} 个数据")
+        except Exception as e:
+            self.add_step(f"加载失败：{str(e)}")
+            QMessageBox.critical(self, "错误", f"加载失败：{str(e)}")
+
