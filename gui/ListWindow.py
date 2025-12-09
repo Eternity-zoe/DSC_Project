@@ -1,524 +1,576 @@
-# gui/ListWindow.py
+import sys
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QLineEdit, QSpinBox, QComboBox, QMessageBox, QStatusBar,
-    QFileDialog, QTextEdit
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLineEdit, QLabel, QSpinBox, QMessageBox,
+    QSplitter, QTextEdit
 )
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPen, QBrush
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.patches as patches
-import json
-import os
-import random
-from core.list import List
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPainter, QPen, QFont, QColor
 
-# 配置matplotlib中文字体
-import matplotlib
-matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Heiti TC']
-matplotlib.rcParams['axes.unicode_minus'] = False
+# 导入DSL相关组件
+from core.dsl_parser import (
+    DSLParser, DSLParseError, StructureDeclaration, Command,
+    StructureType, CommandType, DSLNode
+)
+from gui.components.dsl_panel import DSLPanel  # 复用之前定义的DSL面板
 
+# 链表节点类（原有逻辑保留）
+class ListNode:
+    def __init__(self, val=0):
+        self.val = val
+        self.next = None
+        self.prev = None
+
+# 链表核心逻辑类（原有逻辑保留）
+class LinkedList:
+    def __init__(self, is_doubly=False):
+        self.head = None
+        self.tail = None
+        self.size = 0
+        self.is_doubly = is_doubly  # 是否为双向链表
+
+    def get_node(self, index):
+        if index < 0 or index >= self.size:
+            return None
+        current = self.head
+        for _ in range(index):
+            current = current.next
+        return current
+
+    def insert(self, index, val):
+        if index < 0 or index > self.size:
+            return False
+        new_node = ListNode(val)
+        
+        if index == 0:
+            new_node.next = self.head
+            if self.is_doubly and self.head:
+                self.head.prev = new_node
+            self.head = new_node
+            if self.size == 0:
+                self.tail = new_node
+        elif index == self.size:
+            new_node.prev = self.tail
+            if self.is_doubly and self.tail:
+                self.tail.next = new_node
+            self.tail = new_node
+            if self.size == 0:
+                self.head = new_node
+        else:
+            prev_node = self.get_node(index - 1)
+            new_node.next = prev_node.next
+            if self.is_doubly:
+                new_node.prev = prev_node
+                prev_node.next.prev = new_node
+            prev_node.next = new_node
+        
+        self.size += 1
+        return True
+
+    def delete(self, index):
+        if index < 0 or index >= self.size:
+            return False
+        
+        if self.size == 1:
+            self.head = None
+            self.tail = None
+        elif index == 0:
+            self.head = self.head.next
+            if self.is_doubly:
+                self.head.prev = None
+        elif index == self.size - 1:
+            self.tail = self.tail.prev
+            if self.is_doubly:
+                self.tail.next = None
+        else:
+            prev_node = self.get_node(index - 1)
+            prev_node.next = prev_node.next.next
+            if self.is_doubly:
+                prev_node.next.prev = prev_node
+        
+        self.size -= 1
+        return True
+
+    def update(self, index, val):
+        node = self.get_node(index)
+        if not node:
+            return False
+        node.val = val
+        return True
+
+    def search(self, val):
+        current = self.head
+        index = 0
+        while current:
+            if current.val == val:
+                return index
+            current = current.next
+            index += 1
+        return -1
+
+    def traverse(self):
+        result = []
+        current = self.head
+        while current:
+            result.append(current.val)
+            current = current.next
+        return result
+
+    def clear(self):
+        self.head = None
+        self.tail = None
+        self.size = 0
+
+# 可视化画布类（原有逻辑保留）
+class ListCanvas(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.linked_list = LinkedList()
+        self.setMinimumSize(800, 400)
+
+    def set_linked_list(self, linked_list):
+        self.linked_list = linked_list
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        pen = QPen(QColor("#333333"), 2, Qt.SolidLine)
+        painter.setPen(pen)
+        font = QFont("Arial", 12)
+        painter.setFont(font)
+
+        current = self.linked_list.head
+        x, y = 50, self.height() // 2
+        node_width = 80
+        node_height = 40
+        spacing = 40
+
+        while current:
+            # 绘制节点矩形
+            painter.drawRoundedRect(x, y - node_height//2, node_width, node_height, 10, 10)
+            # 绘制节点值
+            painter.drawText(x + node_width//2, y + 4, Qt.AlignCenter, str(current.val))
+            
+            # 绘制双向链表的prev指针
+            if self.linked_list.is_doubly and current.prev:
+                painter.drawLine(x, y, x - spacing//2, y)
+                painter.drawLine(x - spacing//2, y, x - spacing//2, y - 10)
+                painter.drawLine(x - spacing//2, y - 10, x - 5, y - 10)
+            
+            # 绘制next指针
+            if current.next:
+                painter.drawLine(x + node_width, y, x + node_width + spacing, y)
+                painter.drawLine(x + node_width + spacing, y, x + node_width + spacing, y + 10)
+                painter.drawLine(x + node_width + spacing, y + 10, x + node_width + 5, y + 10)
+
+            x += node_width + spacing
+            current = current.next
+
+# 主窗口类（核心改造：集成DSL面板+命令处理器）
 class ListWindow(QMainWindow):
-    """链表可视化窗口"""
-    def __init__(self):
+    def __init__(self, is_doubly=False):
         super().__init__()
-        self.setWindowTitle("单链表/双链表可视化系统")
-        self.resize(1100, 700)
+        self.is_doubly = is_doubly  # 是否为双向链表
+        self.linked_list = LinkedList(is_doubly)
         
-        # 核心数据结构
-        self.list = List(mode="singly")  # 默认单链表
-        self.selected_node_id = None  # 当前选中的节点ID
-        self.operation_log = []  # 操作日志
-        
-        # 动画状态
-        self.anim_timer = QTimer()
-        self.anim_timer.timeout.connect(self._animate_step)
-        self.anim_steps = []  # 动画步骤队列
-        self.anim_index = 0  # 当前动画步骤索引
+        # 初始化DSL解析器
+        self.dsl_parser = DSLParser()
         
         # 初始化UI
         self._init_ui()
-        self._draw_list()
+        
+        # 注册命令处理器
+        self._register_command_handlers()
 
     def _init_ui(self):
-        """初始化界面布局"""
-        # 中心部件
+        self.setWindowTitle("双向链表操作" if self.is_doubly else "单链表操作")
+        self.setGeometry(100, 100, 1200, 600)
+
+        # 中央组件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-
-        # 1. 可视化画布
-        self.fig = Figure(figsize=(10, 3))
-        self.canvas = FigureCanvas(self.fig)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas.mpl_connect("pick_event", self._on_node_click)
-        main_layout.addWidget(self.canvas, stretch=1)
-
-        # 2. 操作控件区
-        ctrl_layout = QHBoxLayout()
-        main_layout.addLayout(ctrl_layout)
-
-        # 模式选择
-        ctrl_layout.addWidget(QLabel("链表模式："))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["单链表", "双链表"])
-        self.mode_combo.currentTextChanged.connect(self._switch_mode)
-        ctrl_layout.addWidget(self.mode_combo)
-
-        # 数据输入
-        ctrl_layout.addWidget(QLabel("数据："))
-        self.data_input = QLineEdit()
-        self.data_input.setPlaceholderText(f"输入{-self.list.MIN_VAL}~{self.list.MAX_VAL}的整数")
-        self.data_input.setMaximumWidth(100)
-        ctrl_layout.addWidget(self.data_input)
-
-        # 索引输入
-        ctrl_layout.addWidget(QLabel("位置："))
-        self.index_spin = QSpinBox()
-        self.index_spin.setRange(0, self.list.MAX_NODES)
-        self.index_spin.setMaximumWidth(80)
-        ctrl_layout.addWidget(self.index_spin)
-
-        # 操作按钮
-        self.btn_insert_head = QPushButton("头插入")
-        self.btn_insert_head.clicked.connect(self._insert_head)
-        ctrl_layout.addWidget(self.btn_insert_head)
-
-        self.btn_insert_tail = QPushButton("尾插入")
-        self.btn_insert_tail.clicked.connect(self._insert_tail)
-        ctrl_layout.addWidget(self.btn_insert_tail)
-
-        self.btn_insert_index = QPushButton("指定位置插入")
-        self.btn_insert_index.clicked.connect(self._insert_at_index)
-        ctrl_layout.addWidget(self.btn_insert_index)
-
-        self.btn_delete_head = QPushButton("头删除")
-        self.btn_delete_head.clicked.connect(self._delete_head)
-        ctrl_layout.addWidget(self.btn_delete_head)
-
-        self.btn_delete_tail = QPushButton("尾删除")
-        self.btn_delete_tail.clicked.connect(self._delete_tail)
-        ctrl_layout.addWidget(self.btn_delete_tail)
-
-        self.btn_delete_index = QPushButton("指定位置删除")
-        self.btn_delete_index.clicked.connect(self._delete_at_index)
-        ctrl_layout.addWidget(self.btn_delete_index)
-
-        # 3. 辅助功能区
-        aux_layout = QHBoxLayout()
-        main_layout.addLayout(aux_layout)
-
-        self.btn_clear = QPushButton("清空链表")
-        self.btn_clear.clicked.connect(self._clear_list)
-        aux_layout.addWidget(self.btn_clear)
-
-        self.btn_random = QPushButton("随机生成")
-        self.btn_random.clicked.connect(self._random_generate)
-        aux_layout.addWidget(self.btn_random)
-
-        self.btn_save = QPushButton("保存结构")
-        self.btn_save.clicked.connect(self._save_structure)
-        aux_layout.addWidget(self.btn_save)
-
-        self.btn_load = QPushButton("加载结构")
-        self.btn_load.clicked.connect(self._load_structure)
-        aux_layout.addWidget(self.btn_load)
-
-        # 4. 操作日志区
-        log_layout = QHBoxLayout()
-        main_layout.addLayout(log_layout)
-
-        log_label = QLabel("操作日志：")
-        log_layout.addWidget(log_label)
-
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(100)
-        log_layout.addWidget(self.log_text, stretch=1)
-
-        # 状态栏
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("就绪 - 点击节点可选中")
-
-    # ------------------------------ 模式切换 ------------------------------
-    def _switch_mode(self, text: str):
-        """切换单链表/双链表模式"""
-        if self.anim_timer.isActive():
-            QMessageBox.warning(self, "警告", "动画执行中，无法切换模式")
-            return
-
-        mode = "singly" if text == "单链表" else "doubly"
-        # 保存当前数据
-        current_data = self.list.to_list()
-        # 重新初始化链表
-        self.list = List(mode=mode)
-        # 恢复数据
-        for data in current_data:
-            self.list.insert_tail(data)
         
-        self._log_operation(f"切换为{text}模式")
-        self._draw_list()
+        # 主布局：左侧DSL面板，右侧原有功能区
+        main_layout = QHBoxLayout(central_widget)
 
-    # ------------------------------ 插入操作 ------------------------------
-    def _get_input_data(self) -> int:
-        """获取输入数据并验证"""
-        try:
-            data = int(self.data_input.text().strip())
-            if not (self.list.MIN_VAL <= data <= self.list.MAX_VAL):
-                raise ValueError
-            return data
-        except ValueError:
-            QMessageBox.warning(self, "输入错误", f"请输入{-self.list.MIN_VAL}~{self.list.MAX_VAL}的整数")
-            return None
+        # ========== 左侧：DSL执行面板 ==========
+        self.dsl_panel = DSLPanel()
+        self.dsl_panel.execute_request.connect(self._execute_dsl)
+        self.dsl_panel.clear_request.connect(self._handle_clear_command)
+        main_layout.addWidget(self.dsl_panel, 3)  # 30%宽度
 
-    def _insert_head(self):
-        """头插入"""
-        data = self._get_input_data()
-        if data is None:
-            return
+        # ========== 右侧：原有功能区 ==========
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        main_layout.addWidget(right_panel, 7)  # 70%宽度
 
-        try:
-            self._start_animation("insert_head", data)
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        # 可视化画布
+        self.canvas = ListCanvas()
+        self.canvas.set_linked_list(self.linked_list)
+        right_layout.addWidget(self.canvas, stretch=1)
 
-    def _insert_tail(self):
-        """尾插入"""
-        data = self._get_input_data()
-        if data is None:
-            return
+        # 操作控件区
+        control_layout = QVBoxLayout()
 
-        try:
-            self._start_animation("insert_tail", data)
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        # 插入操作
+        insert_layout = QHBoxLayout()
+        insert_layout.addWidget(QLabel("插入值:"))
+        self.insert_val = QLineEdit()
+        insert_layout.addWidget(self.insert_val)
+        insert_layout.addWidget(QLabel("位置:"))
+        self.insert_idx = QSpinBox()
+        self.insert_idx.setMinimum(0)
+        insert_layout.addWidget(self.insert_idx)
+        self.insert_btn = QPushButton("插入")
+        self.insert_btn.clicked.connect(self._on_insert_click)
+        insert_layout.addWidget(self.insert_btn)
+        control_layout.addLayout(insert_layout)
 
-    def _insert_at_index(self):
-        """指定位置插入"""
-        data = self._get_input_data()
-        if data is None:
-            return
+        # 删除操作
+        delete_layout = QHBoxLayout()
+        delete_layout.addWidget(QLabel("删除位置:"))
+        self.delete_idx = QSpinBox()
+        self.delete_idx.setMinimum(0)
+        delete_layout.addWidget(self.delete_idx)
+        self.delete_btn = QPushButton("删除")
+        self.delete_btn.clicked.connect(self._on_delete_click)
+        delete_layout.addWidget(self.delete_btn)
+        control_layout.addLayout(delete_layout)
 
-        index = self.index_spin.value()
-        try:
-            self._start_animation("insert_index", data, index)
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        # 更新操作
+        update_layout = QHBoxLayout()
+        update_layout.addWidget(QLabel("更新位置:"))
+        self.update_idx = QSpinBox()
+        self.update_idx.setMinimum(0)
+        update_layout.addWidget(self.update_idx)
+        update_layout.addWidget(QLabel("新值:"))
+        self.update_val = QLineEdit()
+        update_layout.addWidget(self.update_val)
+        self.update_btn = QPushButton("更新")
+        self.update_btn.clicked.connect(self._on_update_click)
+        control_layout.addLayout(update_layout)
 
-    # ------------------------------ 删除操作 ------------------------------
-    def _delete_head(self):
-        """头删除"""
-        try:
-            self._start_animation("delete_head")
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        # 查找操作
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("查找值:"))
+        self.search_val = QLineEdit()
+        search_layout.addWidget(self.search_val)
+        self.search_btn = QPushButton("查找")
+        self.search_btn.clicked.connect(self._on_search_click)
+        control_layout.addLayout(search_layout)
 
-    def _delete_tail(self):
-        """尾删除"""
-        try:
-            self._start_animation("delete_tail")
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        # 清空操作
+        clear_layout = QHBoxLayout()
+        self.clear_btn = QPushButton("清空链表")
+        self.clear_btn.clicked.connect(self._on_clear_click)
+        clear_layout.addWidget(self.clear_btn)
+        control_layout.addLayout(clear_layout)
 
-    def _delete_at_index(self):
-        """指定位置删除"""
-        index = self.index_spin.value()
-        try:
-            self._start_animation("delete_index", index=index)
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        right_layout.addLayout(control_layout)
 
-    # ------------------------------ 辅助操作 ------------------------------
-    def _clear_list(self):
-        """清空链表"""
-        if self.anim_timer.isActive():
-            QMessageBox.warning(self, "警告", "动画执行中，无法清空")
-            return
-
-        self.list.clear()
-        self.selected_node_id = None
-        self._log_operation("清空链表")
-        self._draw_list()
-
-    def _random_generate(self):
-        """随机生成链表（3-8个节点）"""
-        if self.anim_timer.isActive():
-            QMessageBox.warning(self, "警告", "动画执行中，无法生成")
-            return
-
-        self.list.clear()
-        node_count = random.randint(3, 8)
-        for _ in range(node_count):
-            data = random.randint(self.list.MIN_VAL, self.list.MAX_VAL)
-            self.list.insert_tail(data)
-        
-        self._log_operation(f"随机生成{node_count}个节点的链表")
-        self._draw_list()
-
-    def _save_structure(self):
-        """保存链表结构到JSON文件"""
-        if self.list.is_empty():
-            QMessageBox.warning(self, "警告", "空链表无法保存")
-            return
-
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "保存链表", ".", "JSON文件 (*.json)"
-        )
-        if not filename:
-            return
-
-        save_data = {
-            "mode": self.list.mode,
-            "data": self.list.to_list()
+    def _register_command_handlers(self):
+        """注册所有DSL命令处理器"""
+        self.command_handlers = {
+            CommandType.INSERT: self._handle_insert_command,
+            CommandType.DELETE: self._handle_delete_command,
+            CommandType.UPDATE: self._handle_update_command,
+            CommandType.SEARCH: self._handle_search_command,
+            CommandType.TRAVERSE: self._handle_traverse_command,
+            CommandType.CLEAR: self._handle_clear_command
         }
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(save_data, f, ensure_ascii=False, indent=2)
-        
-        self._log_operation(f"保存链表到{os.path.basename(filename)}")
-        self.status_bar.showMessage(f"已保存到{os.path.basename(filename)}")
 
-    def _load_structure(self):
-        """从JSON文件加载链表结构"""
-        if self.anim_timer.isActive():
-            QMessageBox.warning(self, "警告", "动画执行中，无法加载")
-            return
-
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "加载链表", ".", "JSON文件 (*.json)"
-        )
-        if not filename:
-            return
-
+    # ========== DSL核心处理逻辑 ==========
+    def _execute_dsl(self, dsl_text: str):
+        """执行DSL脚本"""
         try:
-            with open(filename, "r", encoding="utf-8") as f:
-                load_data = json.load(f)
+            # 清空日志
+            self.dsl_panel.log("=== 开始执行DSL ===")
             
-            mode = load_data.get("mode", "singly")
-            data = load_data.get("data", [])
+            # 解析DSL脚本
+            results = self.dsl_parser.parse_script(dsl_text)
             
-            # 初始化链表
-            self.list = List(mode=mode)
-            for val in data:
-                self.list.insert_tail(val)
+            # 处理解析结果
+            for item in results:
+                if isinstance(item, StructureDeclaration):
+                    # 处理结构声明（创建链表）
+                    self._create_list_from_declaration(item)
+                    self.dsl_panel.log(f"✅ 成功创建链表: {item.name}")
+                
+                elif isinstance(item, Command):
+                    # 处理命令操作
+                    handler = self.command_handlers.get(item.type)
+                    if handler:
+                        handler(item.params)
+                        self.dsl_panel.log(f"✅ 执行命令: {item.type.value} {item.params}")
+                    else:
+                        self.dsl_panel.log(f"❌ 不支持的命令: {item.type.value}")
             
-            # 更新UI
-            self.mode_combo.setCurrentText("单链表" if mode == "singly" else "双链表")
-            self._log_operation(f"从{os.path.basename(filename)}加载链表")
-            self._draw_list()
+            # 刷新可视化
+            self._refresh_canvas()
+            
+        except DSLParseError as e:
+            self.dsl_panel.log(f"❌ 解析错误: {str(e)}")
+        except ValueError as e:
+            self.dsl_panel.log(f"❌ 参数错误: {str(e)}")
         except Exception as e:
-            QMessageBox.warning(self, "加载失败", f"文件格式错误：{str(e)}")
+            self.dsl_panel.log(f"❌ 执行错误: {str(e)}")
 
-    # ------------------------------ 动画控制 ------------------------------
-    def _start_animation(self, op_type: str, data: int = None, index: int = None):
-        """开始动画"""
-        if self.anim_timer.isActive():
-            return
-
-        # 生成动画步骤
-        self.anim_steps = []
-        visual_data = self.list.get_visual_data()
-        nodes = visual_data["nodes"]
-
-        if op_type.startswith("insert"):
-            # 插入动画：高亮插入位置 -> 插入节点 -> 恢复颜色
-            if op_type == "insert_head":
-                target_idx = 0
-                self.anim_steps.append(("highlight", target_idx, 0.3))
-                self.anim_steps.append(("insert_head", data))
-                self.anim_steps.append(("restore", target_idx))
-                self._log_operation(f"头插入数据{data}")
-            elif op_type == "insert_tail":
-                target_idx = len(nodes)
-                self.anim_steps.append(("highlight", target_idx, 0.3))
-                self.anim_steps.append(("insert_tail", data))
-                self.anim_steps.append(("restore", target_idx))
-                self._log_operation(f"尾插入数据{data}")
-            elif op_type == "insert_index":
-                target_idx = index
-                self.anim_steps.append(("highlight", target_idx, 0.3))
-                self.anim_steps.append(("insert_index", data, index))
-                self.anim_steps.append(("restore", target_idx))
-                self._log_operation(f"在位置{index}插入数据{data}")
-
-        elif op_type.startswith("delete"):
-            # 删除动画：高亮删除节点 -> 移除节点 -> 重新布局
-            if op_type == "delete_head":
-                target_idx = 0
-                self.anim_steps.append(("highlight", target_idx, 0.8))
-                self.anim_steps.append(("delete_head",))
-                self._log_operation("头删除")
-            elif op_type == "delete_tail":
-                target_idx = len(nodes) - 1
-                self.anim_steps.append(("highlight", target_idx, 0.8))
-                self.anim_steps.append(("delete_tail",))
-                self._log_operation("尾删除")
-            elif op_type == "delete_index":
-                target_idx = index
-                self.anim_steps.append(("highlight", target_idx, 0.8))
-                self.anim_steps.append(("delete_index", index))
-                self._log_operation(f"删除位置{index}的节点")
-
-        # 开始动画
-        self.anim_index = 0
-        self._disable_buttons(True)
-        self.anim_timer.start(300)  # 300ms/帧
-
-    def _animate_step(self):
-        """动画步骤执行"""
-        if self.anim_index >= len(self.anim_steps):
-            # 动画结束
-            self.anim_timer.stop()
-            self._disable_buttons(False)
-            self._draw_list()
-            return
-
-        step = self.anim_steps[self.anim_index]
-        self.anim_index += 1
-        op = step[0]
-
-        if op == "highlight":
-            # 高亮目标位置
-            idx, alpha = step[1], step[2]
-            self._draw_list(highlight_idx=idx, highlight_alpha=alpha)
-        elif op == "restore":
-            # 恢复颜色
-            self._draw_list()
-        elif op == "insert_head":
-            # 执行头插入
-            data = step[1]
-            self.list.insert_head(data)
-        elif op == "insert_tail":
-            # 执行尾插入
-            data = step[1]
-            self.list.insert_tail(data)
-        elif op == "insert_index":
-            # 执行指定位置插入
-            data, index = step[1], step[2]
-            self.list.insert_at_index(data, index)
-        elif op == "delete_head":
-            # 执行头删除
-            self.list.delete_head()
-        elif op == "delete_tail":
-            # 执行尾删除
-            self.list.delete_tail()
-        elif op == "delete_index":
-            # 执行指定位置删除
-            index = step[1]
-            self.list.delete_at_index(index)
-
-    def _disable_buttons(self, disable: bool):
-        """禁用/启用操作按钮"""
-        buttons = [
-            self.btn_insert_head, self.btn_insert_tail, self.btn_insert_index,
-            self.btn_delete_head, self.btn_delete_tail, self.btn_delete_index,
-            self.btn_clear, self.btn_random, self.btn_save, self.btn_load,
-            self.mode_combo
-        ]
-        for btn in buttons:
-            btn.setEnabled(not disable)
-
-    # ------------------------------ 绘图逻辑 ------------------------------
-    def _draw_list(self, highlight_idx: int = None, highlight_alpha: float = 1.0):
-        """绘制链表"""
-        self.ax.clear()
-        self.ax.set_xlim(-0.5, 1200)
-        self.ax.set_ylim(-0.5, 2.0)
-        self.ax.axis("off")
-
-        visual_data = self.list.get_visual_data()
-        nodes = visual_data["nodes"]
-        edges = visual_data["edges"]
-
-        # 绘制边（先绘边，避免遮挡）
-        for edge in edges:
-            source_node = next(n for n in nodes if n["id"] == edge["source_id"])
-            target_node = next(n for n in nodes if n["id"] == edge["target_id"])
+    def _create_list_from_declaration(self, decl: StructureDeclaration):
+        """从DSL声明创建链表"""
+        # 校验结构类型
+        if decl.type not in [StructureType.SINGLY_LIST, StructureType.DOUBLY_LIST]:
+            raise DSLParseError(f"不支持的结构类型: {decl.type.value} (需要链表类型)")
+        
+        # 清空现有链表
+        self.linked_list.clear()
+        
+        # 设置链表类型（单/双向）
+        self.linked_list.is_doubly = (decl.type == StructureType.DOUBLY_LIST)
+        self.canvas.set_linked_list(self.linked_list)
+        
+        # 提取节点值和链接关系
+        node_map = {}
+        node_values = []
+        
+        # 第一步：收集所有节点值
+        for node_id, dsl_node in decl.nodes.items():
+            if "val" not in dsl_node.fields and "value" not in dsl_node.fields:
+                raise DSLParseError(f"节点 {node_id} 缺少值字段（val/value）")
             
-            # 计算边的起点和终点（节点中心偏移）
-            x1, y1 = source_node["x"] + 0.5, source_node["y"] / 100 + 0.2
-            x2, y2 = target_node["x"] - 0.5, target_node["y"] / 100 + 0.2
-
-            # 绘制箭头
-            if edge["type"] == "next":
-                # 正向边（绿色）
-                self.ax.annotate(
-                    "", xy=(x2, y2), xytext=(x1, y1),
-                    arrowprops=dict(arrowstyle="->", color=edge["color"], lw=2)
-                )
-            else:
-                # 反向边（橙色，双链表专用）
-                self.ax.annotate(
-                    "", xy=(x2, y2), xytext=(x1, y1),
-                    arrowprops=dict(arrowstyle="->", color=edge["color"], lw=2, alpha=0.6)
-                )
-
-        # 绘制节点
-        for i, node in enumerate(nodes):
-            x, y = node["x"], node["y"] / 100
-            width, height = 1.0, 0.6
-
-            # 节点颜色
-            color = node["color"]
-            if self.selected_node_id == node["id"]:
-                color = "#FF6347"  # 选中节点：珊瑚红
-            elif highlight_idx is not None and i == highlight_idx:
-                color = f"#FFD700{int(highlight_alpha*255):02X}"  # 高亮：金色透明
-
-            # 绘制矩形节点
-            rect = patches.Rectangle(
-                (x, y), width, height,
-                linewidth=2, edgecolor="black",
-                facecolor=color, alpha=0.9,
-                picker=True  # 支持点击选择
-            )
-            rect.node_id = node["id"]
-            rect.index = i
-            self.ax.add_patch(rect)
-
-            # 绘制节点文本（数据）
-            self.ax.text(
-                x + width/2, y + height/2, node["label"],
-                ha="center", va="center", fontsize=12, fontweight="bold"
-            )
-
-            # 绘制头/尾标记
-            if node["is_head"]:
-                self.ax.text(x + width/2, y - 0.1, "HEAD", ha="center", va="top", fontsize=10, color="red")
-            if node["is_tail"]:
-                self.ax.text(x + width/2, y + height + 0.1, "TAIL", ha="center", va="bottom", fontsize=10, color="blue")
-
-        self.canvas.draw_idle()
-
-    # ------------------------------ 事件处理 ------------------------------
-    def _on_node_click(self, event):
-        """节点点击事件"""
-        if self.anim_timer.isActive():
-            return
-
-        artist = event.artist
-        if hasattr(artist, "node_id"):
-            # 切换选中状态
-            if self.selected_node_id == artist.node_id:
-                self.selected_node_id = None
-                self.status_bar.showMessage("就绪 - 点击节点可选中")
-            else:
-                self.selected_node_id = artist.node_id
-                # 显示节点信息
-                node = next(n for n in self.list.get_visual_data()["nodes"] if n["id"] == artist.node_id)
-                self.status_bar.showMessage(f"选中节点：索引{artist.index}，数据{node['data']}")
+            # 兼容val/value字段
+            node_val = dsl_node.fields.get("val") or dsl_node.fields.get("value")
+            node_map[node_id] = {
+                "val": node_val,
+                "next": dsl_node.links[0] if dsl_node.links else None
+            }
+        
+        # 第二步：构建链表（按节点顺序插入）
+        # 找到头节点（通过prop.head或第一个节点）
+        head_node_id = decl.props.get("head") or next(iter(node_map.keys()))
+        
+        # 遍历链表节点并插入
+        current_node_id = head_node_id
+        inserted_nodes = set()
+        
+        while current_node_id and current_node_id not in inserted_nodes:
+            if current_node_id not in node_map:
+                raise DSLParseError(f"节点 {current_node_id} 未定义")
             
-            self._draw_list()
+            inserted_nodes.add(current_node_id)
+            node_val = node_map[current_node_id]["val"]
+            
+            # 插入到链表末尾
+            self.linked_list.insert(self.linked_list.size, node_val)
+            
+            # 获取下一个节点ID
+            current_node_id = node_map[current_node_id]["next"]
+            if current_node_id is None:
+                break
 
-    # ------------------------------ 日志记录 ------------------------------
-    def _log_operation(self, content: str):
-        """记录操作日志"""
-        from datetime import datetime
-        time_str = datetime.now().strftime("%H:%M:%S")
-        self.operation_log.append(f"[{time_str}] {content}")
-        # 只保留最近20条日志
-        if len(self.operation_log) > 20:
-            self.operation_log.pop(0)
-        # 更新日志显示
-        self.log_text.setText("\n".join(self.operation_log))
+    # ========== 命令处理器实现 ==========
+    def _handle_insert_command(self, params: dict):
+        """处理插入命令"""
+        # 提取参数
+        value = params.get("value")
+        index = params.get("index", 0)
+        
+        # 参数校验
+        if value is None:
+            raise ValueError("插入命令缺少value参数")
+        if not isinstance(value, (int, float, str)):
+            raise ValueError(f"无效的value类型: {type(value)}")
+        
+        # 转换为整数（兼容数值类型）
+        try:
+            insert_val = int(value)
+        except ValueError:
+            insert_val = str(value)
+        
+        # 检查索引范围
+        if index < 0 or index > self.linked_list.size:
+            raise ValueError(f"插入索引 {index} 超出范围（0~{self.linked_list.size}）")
+        
+        # 执行插入
+        success = self.linked_list.insert(index, insert_val)
+        if not success:
+            raise ValueError(f"插入失败: 索引 {index} 无效")
+        
+        # 更新UI控件
+        self.insert_idx.setMaximum(self.linked_list.size)
+        self.delete_idx.setMaximum(self.linked_list.size - 1)
+        self.update_idx.setMaximum(self.linked_list.size - 1)
+
+    def _handle_delete_command(self, params: dict):
+        """处理删除命令"""
+        # 支持index或value参数
+        if "index" in params:
+            index = params["index"]
+            # 校验索引
+            if index < 0 or index >= self.linked_list.size:
+                raise ValueError(f"删除索引 {index} 超出范围（0~{self.linked_list.size-1}）")
+            # 执行删除
+            success = self.linked_list.delete(index)
+            if not success:
+                raise ValueError(f"删除失败: 索引 {index} 无效")
+        
+        elif "value" in params:
+            # 按值删除（删除第一个匹配项）
+            value = params["value"]
+            try:
+                search_val = int(value)
+            except ValueError:
+                search_val = str(value)
+            
+            index = self.linked_list.search(search_val)
+            if index == -1:
+                raise ValueError(f"删除失败: 未找到值 {value}")
+            
+            success = self.linked_list.delete(index)
+            if not success:
+                raise ValueError(f"删除失败: 值 {value} 对应的索引 {index} 无效")
+        
+        else:
+            raise ValueError("删除命令需要index或value参数")
+        
+        # 更新UI控件
+        self.insert_idx.setMaximum(self.linked_list.size)
+        self.delete_idx.setMaximum(max(0, self.linked_list.size - 1))
+        self.update_idx.setMaximum(max(0, self.linked_list.size - 1))
+
+    def _handle_update_command(self, params: dict):
+        """处理更新命令"""
+        # 提取参数
+        index = params.get("index")
+        value = params.get("value")
+        
+        # 参数校验
+        if index is None or value is None:
+            raise ValueError("更新命令需要index和value参数")
+        if index < 0 or index >= self.linked_list.size:
+            raise ValueError(f"更新索引 {index} 超出范围（0~{self.linked_list.size-1}）")
+        
+        # 转换值类型
+        try:
+            update_val = int(value)
+        except ValueError:
+            update_val = str(value)
+        
+        # 执行更新
+        success = self.linked_list.update(index, update_val)
+        if not success:
+            raise ValueError(f"更新失败: 索引 {index} 无效")
+
+    def _handle_search_command(self, params: dict):
+        """处理查找命令"""
+        # 提取参数
+        value = params.get("value")
+        if value is None:
+            raise ValueError("查找命令缺少value参数")
+        
+        # 转换值类型
+        try:
+            search_val = int(value)
+        except ValueError:
+            search_val = str(value)
+        
+        # 执行查找
+        index = self.linked_list.search(search_val)
+        if index == -1:
+            self.dsl_panel.log(f"🔍 未找到值: {value}")
+        else:
+            self.dsl_panel.log(f"🔍 找到值 {value} 在索引位置: {index}")
+
+    def _handle_traverse_command(self, params: dict):
+        """处理遍历命令"""
+        # 执行遍历
+        values = self.linked_list.traverse()
+        self.dsl_panel.log(f"📋 链表遍历结果: {values}")
+
+    def _handle_clear_command(self, params: dict = None):
+        """处理清空命令"""
+        self.linked_list.clear()
+        # 更新UI控件
+        self.insert_idx.setMaximum(0)
+        self.delete_idx.setMaximum(0)
+        self.update_idx.setMaximum(0)
+        self.dsl_panel.log("🗑️ 链表已清空")
+
+    # ========== 原有UI事件处理 ==========
+    def _on_insert_click(self):
+        try:
+            val = int(self.insert_val.text())
+            idx = self.insert_idx.value()
+            success = self.linked_list.insert(idx, val)
+            if success:
+                self._refresh_canvas()
+                self.insert_idx.setMaximum(self.linked_list.size)
+                self.delete_idx.setMaximum(self.linked_list.size - 1)
+                self.update_idx.setMaximum(self.linked_list.size - 1)
+                QMessageBox.information(self, "成功", "插入成功！")
+            else:
+                QMessageBox.warning(self, "失败", "插入失败，索引超出范围！")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "请输入有效的整数！")
+
+    def _on_delete_click(self):
+        idx = self.delete_idx.value()
+        success = self.linked_list.delete(idx)
+        if success:
+            self._refresh_canvas()
+            self.insert_idx.setMaximum(self.linked_list.size)
+            self.delete_idx.setMaximum(max(0, self.linked_list.size - 1))
+            self.update_idx.setMaximum(max(0, self.linked_list.size - 1))
+            QMessageBox.information(self, "成功", "删除成功！")
+        else:
+            QMessageBox.warning(self, "失败", "删除失败，索引超出范围！")
+
+    def _on_update_click(self):
+        try:
+            val = int(self.update_val.text())
+            idx = self.update_idx.value()
+            success = self.linked_list.update(idx, val)
+            if success:
+                self._refresh_canvas()
+                QMessageBox.information(self, "成功", "更新成功！")
+            else:
+                QMessageBox.warning(self, "失败", "更新失败，索引超出范围！")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "请输入有效的整数！")
+
+    def _on_search_click(self):
+        try:
+            val = int(self.search_val.text())
+            idx = self.linked_list.search(val)
+            if idx != -1:
+                QMessageBox.information(self, "查找结果", f"值 {val} 在索引 {idx} 位置！")
+            else:
+                QMessageBox.information(self, "查找结果", f"未找到值 {val}！")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "请输入有效的整数！")
+
+    def _on_clear_click(self):
+        self.linked_list.clear()
+        self._refresh_canvas()
+        self.insert_idx.setMaximum(0)
+        self.delete_idx.setMaximum(0)
+        self.update_idx.setMaximum(0)
+        QMessageBox.information(self, "成功", "链表已清空！")
+
+    def _refresh_canvas(self):
+        """刷新可视化画布"""
+        self.canvas.set_linked_list(self.linked_list)
+        self.canvas.update()
+
+# 测试入口
+if __name__ == "__main__":
+    from PySide6.QtWidgets import QApplication
+    
+    app = QApplication(sys.argv)
+    
+    # 测试单链表窗口
+    window = ListWindow(is_doubly=False)
+    window.show()
+    
+    sys.exit(app.exec())
