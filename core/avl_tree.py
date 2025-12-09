@@ -150,7 +150,7 @@ class AVLTree:
         def _insert(node, val, parent=None):
             if not node:
                 new_node = AVLNode(val)
-                new_node.parent = parent  # 设置父节点
+                new_node.parent = parent
                 path.append(new_node)
                 return new_node, path
             
@@ -258,7 +258,7 @@ class AVLTree:
 
         return self.root
 
-    # 删除节点（简化版，只展示修改部分）
+    # 删除节点
     def delete(self, val, step_callback=None):
         path = []
         deleted_node = None

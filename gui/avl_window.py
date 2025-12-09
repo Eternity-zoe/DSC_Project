@@ -141,6 +141,7 @@ class AVLWindow(QMainWindow):
 
         # 初始绘制空树
         self.draw_tree(None)
+        
 
     # 辅助函数：实现延迟绘制和暂停效果
     def _delayed_draw(self, delay_ms, callback, *args, **kwargs):
@@ -287,7 +288,7 @@ class AVLWindow(QMainWindow):
             self.status.setText(f"BST{status_text}完成：节点 {val}，准备检查平衡")
             
             # 【显示此时的BST树，并高亮新插入的结点，停留0.1秒】
-            self._delayed_draw(100, self.draw_tree, 
+            self._delayed_draw(1000, self.draw_tree, 
                                 self.tree.root, 
                                 highlight=node, 
                                 show_bf=True, 
@@ -301,7 +302,7 @@ class AVLWindow(QMainWindow):
             status = "正常" if is_balanced else "失衡"
             self.status.setText(f"检查节点 {node.val}，平衡因子={bf}（{status}）")
 
-            # 【高亮节点 N，停留0.1秒】/ 【当平衡因子失衡，字体变为红色，停留0.1秒】
+            # 【高亮节点 N，停留1秒】/ 【当平衡因子失衡，字体变为红色，停留0.1秒】
             delay = 100
             # 平衡检查时，正常节点用 HIGHLIGHT_COLOR，失衡节点用 ROTATION_COLOR
             node_color = HIGHLIGHT_COLOR if is_balanced else ROTATION_COLOR
@@ -322,7 +323,7 @@ class AVLWindow(QMainWindow):
             self.status.setText(f"移动到父节点 {next_node.val} 继续检查")
             
             # 【高亮父节点，停留0.1秒】
-            self._delayed_draw(100, self.draw_tree, 
+            self._delayed_draw(1000, self.draw_tree, 
                                 self.tree.root, 
                                 highlight=next_node, 
                                 show_bf=True, 
@@ -344,7 +345,7 @@ class AVLWindow(QMainWindow):
                     highlight_pair.append(child.left)
             
             # 【高亮要旋转的三个结点，停留0.1秒】
-            self._delayed_draw(100, self.draw_tree, 
+            self._delayed_draw(1000, self.draw_tree, 
                                 self.tree.root, 
                                 highlight_pair=highlight_pair, 
                                 show_bf=True, 
@@ -385,7 +386,7 @@ class AVLWindow(QMainWindow):
             self.status.setText("所有节点检查完毕，树已平衡")
             
             # 树已平衡，最终状态显示，取消所有高亮，停留0.1秒
-            self._delayed_draw(100, self.draw_tree, 
+            self._delayed_draw(1000, self.draw_tree, 
                                 self.tree.root, 
                                 show_bf=True, 
                                 node_color=DEFAULT_NODE_COLOR)

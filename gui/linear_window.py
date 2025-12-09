@@ -1,4 +1,4 @@
-# gui/main_window.py
+# gui\linear_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QSpinBox, QMessageBox, QComboBox, QFileDialog
@@ -12,28 +12,23 @@ import json, os, random
 import matplotlib
 matplotlib.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
-from core.sequence_list import SequenceList
-from core.linked_list import LinkedList
-from core.stack import Stack
+# 假设 SequenceList 类已正确实现 insert/delete/build 方法
+from core.sequence_list import SequenceList 
 
 
-class MainWindow(QMainWindow):
+class LinearWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("线性结构可视化系统（平滑动画 + 节点选中）")
+        self.setWindowTitle("顺序表可视化系统（平滑动画 + 节点选中）")
         self.resize(950, 600)
 
         # 当前模式与选中状态
         self.mode = "Sequence"
         self.selected_index = None  # 当前选中的节点
 
-        # 三种结构
+        # 顺序表结构
         self.seq = SequenceList()
-        self.linked = LinkedList()
-        self.stack = Stack()
         self.seq.add_listener(self.on_update)
-        self.linked.add_listener(self.on_update)
-        self.stack.add_listener(self.on_update)
 
         # 动画状态
         self.anim_timer = QTimer()
@@ -59,7 +54,7 @@ class MainWindow(QMainWindow):
 
         ctrl.addWidget(QLabel("结构类型:"))
         self.comboType = QComboBox()
-        self.comboType.addItems(["SequenceList", "LinkedList", "Stack"])
+        self.comboType.addItem("SequenceList")
         self.comboType.currentTextChanged.connect(self.switch_mode)
         ctrl.addWidget(self.comboType)
 
@@ -74,11 +69,11 @@ class MainWindow(QMainWindow):
         self.btnBuild.clicked.connect(self.build_structure)
         ctrl.addWidget(self.btnBuild)
 
-        self.btnInsert = QPushButton("插入/入栈")
+        self.btnInsert = QPushButton("插入")
         self.btnInsert.clicked.connect(self.insert)
         ctrl.addWidget(self.btnInsert)
 
-        self.btnDelete = QPushButton("删除/出栈")
+        self.btnDelete = QPushButton("删除")
         self.btnDelete.clicked.connect(self.delete)
         ctrl.addWidget(self.btnDelete)
 
@@ -103,24 +98,13 @@ class MainWindow(QMainWindow):
         self.selected_index = None
         if "Seq" in text:
             self.mode = "Sequence"
-        elif "Linked" in text:
-            self.mode = "Linked"
-        else:
-            self.mode = "Stack"
-        self.status.setText(f"切换为 {self.mode} 模式")
+        self.status.setText(f"当前为 {self.mode} 模式")
         self.draw([])
 
     # ========== 构建 ==========
     def build_structure(self):
         data = [random.randint(0, 100) for _ in range(6)]
-        if self.mode == "Sequence":
-            self.seq.build(data)
-        elif self.mode == "Linked":
-            self.linked.build(data)
-        else:
-            self.stack.data.clear()
-            for v in data:
-                self.stack.push(v)
+        self.seq.build(data)
         self.status.setText(f"构建 {self.mode} 成功")
         self.selected_index = None
 
@@ -164,17 +148,7 @@ class MainWindow(QMainWindow):
         self.selected_index = None
 
     def get_current_data(self):
-        if self.mode == "Sequence":
-            arr = self.seq.data
-        elif self.mode == "Linked":
-            arr = []
-            cur = self.linked.head
-            while cur:
-                arr.append(cur.val)
-                cur = cur.next
-        else:
-            arr = self.stack.data
-        return {"type": self.mode, "data": arr}
+        return {"type": self.mode, "data": self.seq.data}
 
     def restore_data(self, info):
         dtype = info.get("type")
@@ -182,14 +156,6 @@ class MainWindow(QMainWindow):
         if dtype == "Sequence":
             self.comboType.setCurrentText("SequenceList")
             self.seq.build(data)
-        elif dtype == "Linked":
-            self.comboType.setCurrentText("LinkedList")
-            self.linked.build(data)
-        elif dtype == "Stack":
-            self.comboType.setCurrentText("Stack")
-            self.stack.data.clear()
-            for v in data:
-                self.stack.push(v)
 
     # ========== 点击事件 ==========
     def on_pick(self, event):
@@ -216,55 +182,67 @@ class MainWindow(QMainWindow):
         if not arr and op == "delete":
             QMessageBox.warning(self, "错误", "结构为空")
             return
-        if index < 0 or index > len(arr):
+        # 修正边界检查：插入允许 index = len(arr) (尾部插入)
+        if index < 0 or index > len(arr): 
             QMessageBox.warning(self, "错误", "索引越界")
             return
 
         # 生成动画帧：颜色渐变、插入/删除形变
         steps = []
         if op == "insert":
-            steps += [("fade_color", index, 0.2*i) for i in range(6)]
+            # 修正插入动画：高亮待插入位置及其后所有元素
+            # 1. 高亮待插入位置及后方元素，模拟后移
+            for i in range(6):
+                 # index: 待插入位置
+                 steps.append(("fade_color", index, 0.2 * i)) 
+            # 2. 执行核心操作 (数据结构变化)
             steps.append(("commit_insert", index, value))
-            steps += [("fade_color", index, 1 - 0.15*i) for i in range(6)]
+            # 3. 强调新插入的元素 (只有 index 变色)
+            steps += [("fade_new", index, 1.0 - 0.15 * i) for i in range(7)]
+            
         elif op == "delete":
-            steps += [("fade_color", index, 1 - 0.15*i) for i in range(6)]
+            # 修正删除动画：高亮待删除元素
+            # 1. 强调待删除元素，模拟后移
+            for i in range(6):
+                 steps.append(("fade_color", index, 1 - 0.15 * i)) 
+            # 2. 执行核心操作 (数据结构变化)
             steps.append(("commit_delete", index))
+            # 3. 强调删除后的元素前移
+            # (如果不需要强调前移，直接结束即可)
         else:
             return
+            
         self.anim_steps = steps
         self.anim_index = 0
         self.disable_buttons(True)
-        self.anim_timer.start(350)  # 慢一点（350ms/frame）
+        self.anim_timer.start(3)  # 慢一点（350ms/frame）
 
     def _anim_step(self):
         if self.anim_index >= len(self.anim_steps):
             self.anim_timer.stop()
             self.disable_buttons(False)
+            self.draw(self.seq.data) # 确保最终状态是正常颜色
             return
+        
         step = self.anim_steps[self.anim_index]
         self.anim_index += 1
         arr = self.get_current_data()["data"]
 
         t = step[0]
         if t == "fade_color":
+            # 强调 index 及其右侧所有元素
             idx, alpha = step[1], step[2]
-            self.draw(arr, {"type": "highlight", "index": idx, "alpha": alpha})
+            self.draw(arr, {"type": "highlight_group", "index": idx, "alpha": alpha})
+        elif t == "fade_new":
+            # 强调新插入的元素 (只强调一个元素)
+            idx, alpha = step[1], step[2]
+            self.draw(arr, {"type": "selected", "index": idx, "alpha": alpha})
         elif t == "commit_insert":
             idx, val = step[1], step[2]
-            if self.mode == "Sequence":
-                self.seq.insert(idx, val)
-            elif self.mode == "Linked":
-                self.linked.insert(idx, val)
-            else:
-                self.stack.push(val)
+            self.seq.insert(idx, val)
         elif t == "commit_delete":
             idx = step[1]
-            if self.mode == "Sequence":
-                self.seq.delete(idx)
-            elif self.mode == "Linked":
-                self.linked.delete(idx)
-            else:
-                self.stack.pop()
+            self.seq.delete(idx)
             self.selected_index = None
 
     def disable_buttons(self, disable=True):
@@ -281,38 +259,49 @@ class MainWindow(QMainWindow):
         if not arr:
             self.ax.text(0.4, 0.5, "(空)", fontsize=16, color="gray")
         else:
-            highlight_color = "#FF6347"
-            normal_color = "#87CEFA"
+            highlight_color = "#FF6347" # 选中/高亮颜色 (珊瑚红)
+            move_color = "#FFA07A"      # 移动/后移高亮颜色 (浅鲑鱼红)
+            normal_color = "#87CEFA"    # 正常颜色 (浅蓝色)
             alpha = 1.0
-            if action and action.get("type") == "highlight":
-                alpha = action.get("alpha", 1)
-            if self.mode in ("Sequence", "Stack"):
-                bars = self.ax.bar(range(len(arr)), arr, color=normal_color, picker=True)
-                for i, bar in enumerate(bars):
-                    bar.index = i
-                    self.ax.text(bar.get_x() + bar.get_width()/2, bar.get_height()/2,
-                                 str(int(arr[i])), ha='center', va='center', fontsize=12)
-                    if (action and action.get("index") == i and action.get("type") in ("highlight","selected")) or i == self.selected_index:
-                        bar.set_facecolor(highlight_color)
-                        bar.set_alpha(alpha)
-                self.ax.set_xlim(-1, len(arr))
-                self.ax.set_ylim(0, max(arr) + 10)
-                self.ax.set_title("顺序栈" if self.mode=="Stack" else "顺序表")
-            else:
-                # 链表绘制
-                for i, v in enumerate(arr):
-                    x = i * 1.5
-                    color = normal_color
-                    a = 1.0
-                    if (action and action.get("index") == i and action.get("type") in ("highlight","selected")) or i == self.selected_index:
-                        color = highlight_color
-                        a = alpha
-                    self.ax.add_patch(patches.Rectangle((x, 0), 1.0, 0.6, facecolor=color, edgecolor='black', alpha=a, picker=True))
-                    self.ax.text(x + 0.5, 0.3, str(int(v)), ha='center', va='center', fontsize=12)
-                    if i < len(arr) - 1:
-                        self.ax.arrow(x + 1.0, 0.3, 0.3, 0, head_width=0.1, color='k')
-                self.ax.set_xlim(-0.5, len(arr) * 1.7)
-                self.ax.set_ylim(-0.2, 1)
-                self.ax.axis('off')
-                self.ax.set_title("单链表")
+            
+            # 1. 绘制柱状图
+            bars = self.ax.bar(range(len(arr)), arr, color=normal_color, picker=True)
+            for i, bar in enumerate(bars):
+                bar.index = i
+                
+                # 2. 应用动画状态
+                current_color = normal_color
+                
+                # A. 选中状态 (永久高亮)
+                if i == self.selected_index:
+                    current_color = highlight_color
+                    alpha = 1.0 # 选中状态不透明
+                
+                # B. 动画高亮：Highlight Group (删除/插入后移)
+                if action and action.get("type") == "highlight_group":
+                    idx = action.get("index")
+                    # 高亮从 index 开始到末尾的所有元素
+                    if i >= idx:
+                        current_color = move_color
+                        alpha = action.get("alpha", 1)
+                        
+                # C. 动画高亮：Selected (新插入/待删除元素)
+                if action and action.get("type") == "selected" and action.get("index") == i:
+                    current_color = highlight_color
+                    alpha = action.get("alpha", 1)
+                    
+                bar.set_facecolor(current_color)
+                bar.set_alpha(alpha)
+                
+                # 3. 绘制元素值和索引
+                self.ax.text(bar.get_x() + bar.get_width()/2, bar.get_height()/2,
+                             str(int(arr[i])), ha='center', va='center', fontsize=12, color='black')
+                self.ax.text(bar.get_x() + bar.get_width()/2, -max(arr)*0.05, # 绘制索引
+                             f'[{i}]', ha='center', va='top', fontsize=10, color='gray')
+            
+            # 设置坐标轴范围和标题
+            self.ax.set_xlim(-0.5, len(arr) - 0.5)
+            self.ax.set_ylim(0, max(arr) + 10 if arr else 10)
+            self.ax.set_title("顺序表")
+            
         self.canvas.draw_idle()

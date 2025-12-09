@@ -1,6 +1,6 @@
 # gui/menu_window.py
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton
-from gui.main_window import MainWindow
+from gui.linear_selector import LinearSelector
 from gui.tree_window import TreeWindow
 from gui.tree_selector import TreeSelector 
 
@@ -15,16 +15,16 @@ class MenuWindow(QMainWindow):
         layout = QVBoxLayout(central)
 
         btnLinear = QPushButton("线性结构可视化")
-        btnLinear.clicked.connect(self.open_linear)
+        btnLinear.clicked.connect(self.open_linear_selector)
         layout.addWidget(btnLinear)
 
         btnTree = QPushButton("树形结构可视化")
         btnTree.clicked.connect(self.open_tree_selector)  # 改为打开选择器
         layout.addWidget(btnTree)
 
-    def open_linear(self):
-        self.linear = MainWindow()
-        self.linear.show()
+    def open_linear_selector(self):
+        self.linear_selector = LinearSelector()
+        self.linear_selector.show()
 
     def open_tree_selector(self):
         self.tree_selector = TreeSelector()  # 打开选择器

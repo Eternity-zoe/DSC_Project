@@ -38,19 +38,19 @@ class TreeSelector(QMainWindow):
         self.close()
 
     def open_bst(self):
-        from gui.bst_window import BSTWindow  # 补全路径（假设在gui目录下）
+        from gui.bst_window import BSTWindow  
         self.bst_window = BSTWindow()
         self.bst_window.show()
         self.close()
 
     def open_huffman_tree(self):
-        from gui.huffman_window import HuffmanWindow  # 补全路径（假设在gui目录下）
+        from gui.huffman_window import HuffmanWindow  
         self.huffman_window = HuffmanWindow()
         self.huffman_window.show()
         self.close()
 
     def open_avl_tree(self):
-        from gui.avl_window import AVLWindow  # 补全路径（假设在gui目录下）
+        from gui.avl_window import AVLWindow  
         self.avl_window = AVLWindow()
         self.avl_window.show()
         self.close()
