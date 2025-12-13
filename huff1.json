@@ -1,0 +1,36 @@
+{
+  "type": "huffman_tree",
+  "version": 1,
+  "root": {
+    "type": "I",
+    "freq": 10,
+    "left": {
+      "type": "L",
+      "char": "d",
+      "freq": 4
+    },
+    "right": {
+      "type": "I",
+      "freq": 6,
+      "left": {
+        "type": "L",
+        "char": "c",
+        "freq": 3
+      },
+      "right": {
+        "type": "I",
+        "freq": 3,
+        "left": {
+          "type": "L",
+          "char": "a",
+          "freq": 1
+        },
+        "right": {
+          "type": "L",
+          "char": "b",
+          "freq": 2
+        }
+      }
+    }
+  }
+}

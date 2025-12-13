@@ -1,0 +1,27 @@
+{
+  "type": "huffman_tree",
+  "version": 1,
+  "root": {
+    "type": "I",
+    "freq": 6,
+    "left": {
+      "type": "I",
+      "freq": 2,
+      "left": {
+        "type": "L",
+        "char": "不",
+        "freq": 1
+      },
+      "right": {
+        "type": "L",
+        "char": "你",
+        "freq": 1
+      }
+    },
+    "right": {
+      "type": "L",
+      "char": "好",
+      "freq": 4
+    }
+  }
+}

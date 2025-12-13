@@ -8,6 +8,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
 from core.bst_tree import BSTree
+import re  
+from core.dsl_parser import DSLParser
 
 
 class BSTWindow(QMainWindow):
@@ -19,12 +21,14 @@ class BSTWindow(QMainWindow):
         # === 初始化核心数据结构 ===
         self.tree = BSTree()
         self.tree.add_listener(self.on_update)  # 绑定更新回调
-
+        self.dsl_parser = DSLParser()
+        
         # === 初始化图形对象（修复：添加matplotlib画布） ===
         self.fig = Figure(figsize=(8, 6), dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.ax = self.fig.add_subplot(111)
         self.coords = {}  # 节点坐标映射
+        self.node_artists = []
 
         # === 初始化动画相关变量 ===
         self.path_nodes = []  # 动画路径节点
@@ -32,30 +36,36 @@ class BSTWindow(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self._animate_path)
 
-        # === 新增：步骤记录面板 ===
+        # === 步骤记录面板 ===
         self.step_text = QTextEdit()
         self.step_text.setReadOnly(True)
         self.step_text.setPlaceholderText("操作步骤将显示在这里...")
+
+        # === 初始化DSL面板 ===
+        self._init_dsl_panel()
 
         # === 主布局：左右分栏 ===
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)  # 水平布局
 
-        # 左侧：树图和控件
+        # 左侧容器（包含DSL面板和树图区域）
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        
+        # 添加DSL面板到左侧容器
+        left_layout.addWidget(self.dsl_panel)
+
+         # 左侧树图和控件区域
         left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)  # 左侧垂直布局
-        main_layout.addWidget(left_panel, 7)  # 占70%宽度
-        main_layout.addWidget(self.step_text, 3)  # 右侧步骤面板占30%
+        left_panel_layout = QVBoxLayout(left_panel)
 
         # === 左侧控件区：基础操作 ===
         ctrl = QHBoxLayout()  # 修复：正确定义ctrl布局
-        # 输入框
         self.inputVal = QLineEdit()  # 修复：初始化输入框
         self.inputVal.setPlaceholderText("输入整数（1-100）")
         self.inputVal.setMaximumWidth(120)
         ctrl.addWidget(self.inputVal)
-        # 按钮
         self.btn_insert = QPushButton("插入")
         self.btn_insert.clicked.connect(self.insert)
         ctrl.addWidget(self.btn_insert)
@@ -92,9 +102,6 @@ class BSTWindow(QMainWindow):
         self.btn_lower_bound.clicked.connect(self.find_lower_bound)
         adv.addWidget(self.btn_lower_bound)
 
-        # 在BSTWindow类的__init__方法的控件区添加文件操作按钮
-        # 在高级功能布局后添加：
-
         # 文件操作布局
         file_ops = QHBoxLayout()
         file_ops.addWidget(QLabel("文件操作："))
@@ -105,24 +112,198 @@ class BSTWindow(QMainWindow):
         self.btn_load.clicked.connect(self.load_data)
         file_ops.addWidget(self.btn_load)
 
-        # 在组装左侧布局时添加
-        left_layout.addWidget(QLabel("——— 文件操作 ———"))
-        left_layout.addLayout(file_ops)
+         # === 状态栏 ===
+        self.status = QLabel("就绪 - 支持DSL操作和可视化联动")
 
-        
+        # === 组装左侧面板布局 ===
+        left_panel_layout.addWidget(self.canvas)
+        left_panel_layout.addLayout(ctrl)
+        left_panel_layout.addWidget(QLabel("——— 高级查找功能 ———"))
+        left_panel_layout.addLayout(adv)
+        left_panel_layout.addWidget(QLabel("——— 文件操作 ———"))
+        left_panel_layout.addLayout(file_ops)
+        left_panel_layout.addWidget(self.status)
 
-        # === 状态栏 ===
-        self.status = QLabel("就绪 - 支持插入/查找/删除/前驱后继查找")  # 修复：初始化status
+        # 将左侧面板添加到左侧容器
+        left_layout.addWidget(left_panel, stretch=1)
 
-        # === 组装左侧布局 ===
-        left_layout.addWidget(self.canvas)  # 添加画布
-        left_layout.addLayout(ctrl)  # 添加基础操作布局
-        left_layout.addWidget(QLabel("——— 高级查找功能 ———"))
-        left_layout.addLayout(adv)  # 添加高级功能布局
-        left_layout.addWidget(self.status)  # 添加状态栏
+        # 主布局组装
+        main_layout.addWidget(left_container, 7)
+        main_layout.addWidget(self.step_text, 3)
 
         # 初始绘制空树
         self.draw_tree(None)
+
+    
+    def _init_dsl_panel(self):
+        """初始化DSL执行面板"""
+        self.dsl_panel = QWidget()
+        dsl_layout = QVBoxLayout(self.dsl_panel)
+        dsl_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 面板标题
+        title_label = QLabel("DSL执行面板")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        dsl_layout.addWidget(title_label)
+        
+        # 输入区域
+        self.dsl_input = QTextEdit()
+        self.dsl_input.setPlaceholderText("""支持声明式和命令式DSL语句：
+// 声明式示例
+bst MyTree {
+    node root { int val = 5; left = n3; right = n7; }
+    node n3 { int val = 3; }
+    node n7 { int val = 7; }
+}
+
+// 命令式示例
+insert MyTree value=9;
+search MyTree value=3;
+delete MyTree value=7;
+find_predecessor MyTree value=5;""")
+        self.dsl_input.setMinimumHeight(120)
+        dsl_layout.addWidget(self.dsl_input)
+        
+        # 按钮区域
+        btn_layout = QHBoxLayout()
+        self.btn_execute_dsl = QPushButton("执行DSL")
+        self.btn_execute_dsl.clicked.connect(self.execute_dsl)
+        self.btn_clear_dsl = QPushButton("清空")
+        self.btn_clear_dsl.clicked.connect(lambda: self.dsl_input.clear())
+        
+        btn_layout.addWidget(self.btn_execute_dsl)
+        btn_layout.addWidget(self.btn_clear_dsl)
+        dsl_layout.addLayout(btn_layout)
+        
+        # 结果提示区
+        self.dsl_result = QLabel("")
+        self.dsl_result.setStyleSheet("color: #666; font-size: 12px;")
+        dsl_layout.addWidget(self.dsl_result)
+
+    def execute_dsl(self):
+        """执行DSL语句并处理结果"""
+        dsl_text = self.dsl_input.toPlainText().strip()
+        if not dsl_text:
+            self.dsl_result.setText("⚠️ 请输入DSL语句")
+            return
+
+        try:
+            # 区分声明式和命令式语法
+            if re.search(r'bst\s+\w+\s*{', dsl_text, re.IGNORECASE):
+                # 声明式：解析并创建新BST
+                struct = self.dsl_parser.parse_script(dsl_text)
+                self._load_bst_from_dsl(struct)
+                self.dsl_result.setText(f"✅ 已创建BST: {struct.name}")
+                self.add_step(f"通过DSL创建BST: {struct.name}")
+            else:
+                # 命令式：执行操作
+                self._execute_dsl_command(dsl_text)
+                self.dsl_result.setText("✅ DSL操作执行成功")
+        except Exception as e:
+            error_msg = f"❌ 执行失败: {str(e)}"
+            self.dsl_result.setText(error_msg)
+            self.add_step(error_msg)
+            QMessageBox.warning(self, "DSL执行错误", str(e))
+
+    def _load_bst_from_dsl(self, struct):
+        """从DSL解析结果加载BST结构"""
+        if struct.type != "bst":
+            raise ValueError("仅支持BST类型的声明")
+
+        # 清空现有树
+        self.tree.root = None
+        
+        # 提取节点值映射
+        node_values = {}
+        for node in struct.nodes:
+            val_field = next((f for f in node.fields if f.name == "val"), None)
+            if val_field:
+                node_values[node.name] = int(val_field.value)
+        
+        # 先插入所有节点（保证存在性）
+        for name, val in node_values.items():
+            self.tree.insert(val, step_callback=self.add_step, skip_animation=True)
+        
+        # 重新构建父子关系
+        for node in struct.nodes:
+            current_val = node_values[node.name]
+            current_node = self.tree.search_node(current_val)
+            
+            # 处理左子树
+            left_link = next((l for l in node.links if l.startswith("left=")), None)
+            if left_link:
+                left_node_name = left_link.split("=")[1].strip()
+                if left_node_name != "null" and left_node_name in node_values:
+                    left_val = node_values[left_node_name]
+                    left_node = self.tree.search_node(left_val)
+                    current_node.left = left_node
+                    left_node.parent = current_node
+            
+            # 处理右子树
+            right_link = next((l for l in node.links if l.startswith("right=")), None)
+            if right_link:
+                right_node_name = right_link.split("=")[1].strip()
+                if right_node_name != "null" and right_node_name in node_values:
+                    right_val = node_values[right_node_name]
+                    right_node = self.tree.search_node(right_val)
+                    current_node.right = right_node
+                    right_node.parent = current_node
+        
+        # 刷新视图
+        self.draw_tree(self.tree.root)
+
+    def _execute_dsl_command(self, command):
+        """解析并执行命令式DSL"""
+        # 命令格式：operation struct_name [params]
+        cmd_patterns = [
+            # 插入命令
+            (r'insert\s+(\w+)\s+value=(\d+);?', self._dsl_insert),
+            # 查找命令
+            (r'search\s+(\w+)\s+value=(\d+);?', self._dsl_search),
+            # 删除命令
+            (r'delete\s+(\w+)\s+value=(\d+);?', self._dsl_delete),
+            # 查找前驱
+            (r'find_predecessor\s+(\w+)\s+value=(\d+);?', self._dsl_predecessor),
+            # 查找后继
+            (r'find_successor\s+(\w+)\s+value=(\d+);?', self._dsl_successor)
+        ]
+
+        for pattern, handler in cmd_patterns:
+            match = re.match(pattern, command, re.IGNORECASE)
+            if match:
+                struct_name = match.group(1)
+                value = int(match.group(2))
+                # 验证结构名称（当前只支持当前树）
+                if struct_name != self.tree.name and hasattr(self.tree, 'name'):
+                    raise ValueError(f"未知结构: {struct_name}")
+                handler(value)
+                return
+
+        raise SyntaxError(f"无效的DSL命令: {command}")
+
+    # DSL命令处理函数
+    def _dsl_insert(self, value):
+        self.add_step(f"DSL操作：插入值 {value}")
+        self.tree.insert(value, step_callback=self.add_step)
+
+    def _dsl_search(self, value):
+        self.add_step(f"DSL操作：查找值 {value}")
+        self.tree.search(value, step_callback=self.add_step)
+
+    def _dsl_delete(self, value):
+        self.add_step(f"DSL操作：删除值 {value}")
+        self.tree.delete(value, step_callback=self.add_step)
+
+    def _dsl_predecessor(self, value):
+        self.add_step(f"DSL操作：查找 {value} 的前驱")
+        node, path = self.tree.predecessor(value, step_callback=self.add_step)
+        self._animate_special_path("前驱", value, node, path)
+
+    def _dsl_successor(self, value):
+        self.add_step(f"DSL操作：查找 {value} 的后继")
+        node, path = self.tree.successor(value, step_callback=self.add_step)
+        self._animate_special_path("后继", value, node, path)
+
 
     # === 基础操作 ===
     def insert(self):
@@ -299,7 +480,7 @@ class BSTWindow(QMainWindow):
                 self.ax.plot([x, x2], [y, y2], "k-")
 
         # 节点绘制
-        self.node_artists = []  # 存储节点图形对象
+        self.node_artists = []  
         for n, (x, y) in self.coords.items():
             color = "#FF6347" if highlight is n else "#87CEFA"
             lw = 2 if highlight is n else 1

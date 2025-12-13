@@ -1,5 +1,6 @@
 import heapq
 from collections import defaultdict
+import json
 
 class HuffmanNode:
     def __init__(self, char=None, freq=0, left=None, right=None):
@@ -71,3 +72,67 @@ class HuffmanTree:
             
         self._generate_codes(node.left, current_code + "0")
         self._generate_codes(node.right, current_code + "1")
+
+    def serialize(self):
+        """将哈夫曼树序列化为 dict"""
+        def dfs(node):
+            if node is None:
+                return None
+            if node.char is not None:
+                return {
+                    "type": "L",
+                    "char": node.char,
+                    "freq": node.freq
+                }
+            return {
+                "type": "I",
+                "freq": node.freq,
+                "left": dfs(node.left),
+                "right": dfs(node.right)
+            }
+
+        return {
+            "type": "huffman_tree",
+            "version": 1,
+            "root": dfs(self.root)
+        }
+
+    def save_to_file(self, path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.serialize(), f, ensure_ascii=False, indent=2)  
+
+    def load_from_dict(self, data):
+        """从 dict 恢复哈夫曼树"""
+        def build(node_data):
+            if node_data is None:
+                return None
+
+            if node_data["type"] == "L":
+                return HuffmanNode(
+                    char=node_data["char"],
+                    freq=node_data["freq"]
+                )
+
+            node = HuffmanNode(freq=node_data["freq"])
+            node.left = build(node_data["left"])
+            node.right = build(node_data["right"])
+            return node
+
+        self.root = build(data["root"])
+        self.code_map.clear()
+        self._generate_codes(self.root, "")
+        self.notify(
+            "build",
+            self.root,
+            extra={
+                "steps": steps,
+                "code_map": self.code_map
+            }
+        )
+
+    def load_from_file(self, path):
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.load_from_dict(data)
+          
