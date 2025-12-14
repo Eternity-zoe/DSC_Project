@@ -12,8 +12,30 @@ import json, os, random
 import matplotlib
 matplotlib.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
-# 假设 SequenceList 类已正确实现 insert/delete/build 方法
 from core.sequence_list import SequenceList 
+from dsl.sequence.sequence_dsl import SequenceDSLParser
+
+DSL_EXAMPLES = {
+    "示例 1：基础操作": """sequence Demo {
+    build [10, 20, 30]
+    insert 1 99
+    delete 2
+}""",
+
+    "示例 2：随机构建": """sequence Demo {
+    random 6 0 100
+    insert 0 5
+    insert 3 88
+}""",
+
+    "示例 3：连续删除": """sequence Demo {
+    build [1,2,3,4,5]
+    delete 0
+    delete 2
+    delete 1
+}"""
+}
+
 
 
 class LinearWindow(QMainWindow):
@@ -35,22 +57,33 @@ class LinearWindow(QMainWindow):
         self.anim_timer.timeout.connect(self._anim_step)
         self.anim_steps = []
         self.anim_index = 0
+        self.dsl_cmds = []
+        self.dsl_ptr = 0
 
         # UI 布局
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        
+        layout = QHBoxLayout(central)
+
+        # 左：DSL 区
+        dsl_panel = QVBoxLayout()
+        layout.addLayout(dsl_panel, 1)
+
+        # 右：可视化 + 控件
+        right_panel = QVBoxLayout()
+        layout.addLayout(right_panel, 3)
 
         # matplotlib 画布
         self.fig = Figure(figsize=(6, 4))
         self.canvas = FigureCanvas(self.fig)
         self.ax = self.fig.add_subplot(111)
         self.canvas.mpl_connect("pick_event", self.on_pick)
-        layout.addWidget(self.canvas)
+        right_panel.addWidget(self.canvas)
 
         # 控件区
         ctrl = QHBoxLayout()
-        layout.addLayout(ctrl)
+        right_panel.addLayout(ctrl)
 
         ctrl.addWidget(QLabel("结构类型:"))
         self.comboType = QComboBox()
@@ -79,7 +112,7 @@ class LinearWindow(QMainWindow):
 
         # 文件操作区
         file_ctrl = QHBoxLayout()
-        layout.addLayout(file_ctrl)
+        right_panel.addLayout(file_ctrl)
         self.btnSave = QPushButton("保存结构")
         self.btnSave.clicked.connect(self.save_structure)
         self.btnOpen = QPushButton("打开结构")
@@ -89,7 +122,44 @@ class LinearWindow(QMainWindow):
 
         # 状态栏
         self.status = QLabel("就绪")
-        layout.addWidget(self.status)
+        right_panel.addWidget(self.status)
+
+        # ===== 左侧 DSL 面板 =====
+        dsl_panel.addWidget(QLabel("DSL 脚本"))
+
+        # 示例选择
+        self.comboDSL = QComboBox()
+        self.comboDSL.addItem("选择示例...")
+        self.comboDSL.addItems(DSL_EXAMPLES.keys())
+        self.comboDSL.currentTextChanged.connect(self.load_dsl_example)
+        dsl_panel.addWidget(self.comboDSL)
+
+        # DSL 编辑区（用多行，更合理）
+        from PySide6.QtWidgets import QTextEdit
+        self.dslEdit = QTextEdit()
+        self.dslEdit.setPlaceholderText(
+            "sequence Demo {\n    build [1,2,3]\n    insert 1 9\n}"
+        )
+        dsl_panel.addWidget(self.dslEdit,stretch=1)
+
+        # DSL 按钮
+        dsl_btns = QHBoxLayout()
+        dsl_panel.addLayout(dsl_btns)
+
+        self.btnRunDSL = QPushButton("▶ 执行")
+        self.btnRunDSL.clicked.connect(self.run_dsl)
+        dsl_btns.addWidget(self.btnRunDSL)
+
+        self.btnStepDSL = QPushButton("⏭ 单步")
+        self.btnStepDSL.clicked.connect(self.step_dsl)
+        dsl_btns.addWidget(self.btnStepDSL)
+
+        # 拉伸占位（让 DSL 区靠上）
+        dsl_panel.addStretch()
+
+        
+
+
 
         self.draw([])
 
@@ -305,3 +375,65 @@ class LinearWindow(QMainWindow):
             self.ax.set_title("顺序表")
             
         self.canvas.draw_idle()
+
+    def run_dsl(self):
+        text = self.dslEdit.toPlainText()
+        try:
+            self.dsl_cmds = SequenceDSLParser.parse(text)
+            self.dsl_ptr = 0
+            self.step_dsl()
+        except Exception as e:
+            QMessageBox.warning(self, "DSL 错误", str(e))
+    def step_dsl(self):
+        if self.anim_timer.isActive():
+            return
+        if self.dsl_ptr >= len(self.dsl_cmds):
+            self.status.setText("DSL 执行完成")
+            return
+
+        cmd = self.dsl_cmds[self.dsl_ptr]
+        self.dsl_ptr += 1
+        self.execute_dsl_cmd(cmd)
+    def execute_dsl_cmd(self, cmd):
+        op = cmd[0]
+
+        if op == "build":
+            arr = cmd[1]
+            self.seq.build(arr)
+            self.selected_index = None
+            self.status.setText(f"DSL: build {arr}")
+
+        elif op == "random":
+            _, n, lo, hi = cmd
+            data = [random.randint(lo, hi) for _ in range(n)]
+            self.seq.build(data)
+            self.status.setText(f"DSL: random {n}")
+
+        elif op == "insert":
+            _, idx, val = cmd
+            self.start_animation("insert", idx, val)
+            self.status.setText(f"DSL: insert {idx} {val}")
+
+        elif op == "delete":
+            _, idx = cmd
+            self.start_animation("delete", idx)
+            self.status.setText(f"DSL: delete {idx}")
+
+        elif op == "show":
+            self.draw(self.seq.data)
+
+        # 动画结束后自动走下一条
+        if op in ("insert", "delete"):
+            self.anim_timer.timeout.connect(self._dsl_auto_continue)
+        else:
+            QTimer.singleShot(200, self.step_dsl)
+
+    def _dsl_auto_continue(self):
+        if not self.anim_timer.isActive():
+            self.anim_timer.timeout.disconnect(self._dsl_auto_continue)
+            self.step_dsl()
+
+    def load_dsl_example(self, name):
+        if name in DSL_EXAMPLES:
+            self.dslEdit.setPlainText(DSL_EXAMPLES[name])
+            self.status.setText(f"已加载示例：{name}")

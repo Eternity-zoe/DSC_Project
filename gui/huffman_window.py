@@ -9,6 +9,11 @@ import matplotlib.patches as patches
 from core.huffman_tree import HuffmanTree, HuffmanNode  # 正确的导入路径
 from dsl.huffman.huffman_dsl_parser import HuffmanDSLParser
 from dsl.huffman.huffman_dsl_executor import HuffmanDSLExecutor
+NODE_RADIUS = 0.3
+MIN_NODE_SIZE_INCH = 0.5  # 节点直径最小0.5英寸（约1.27cm）
+NODE_RADIUS = MIN_NODE_SIZE_INCH / 2  # 节点半径（基于最小尺寸）
+TEXT_PADDING = 0.1  # 文本与节点边缘的间距（英寸）
+
 
 class HuffmanWindow(QMainWindow):
     def __init__(self):
@@ -154,103 +159,157 @@ class HuffmanWindow(QMainWindow):
             self.draw_tree(self.root)
             self.status.setText(f"哈夫曼树构建完成（共 {len(self.build_steps)} 步合并）")
         
+    def _compute_depth(self, node):
+        """辅助函数：计算树的最大深度"""
+        if not node:
+            return 0
+        return 1 + max(self._compute_depth(node.left), self._compute_depth(node.right))
+
     def _draw_build_step(self, left, right, merged):
-        """绘制合并步骤"""
+        """
+        绘制哈夫曼树合并步骤 (调整为圆形节点样式)
+        核心优化：固定节点物理尺寸，精准控制画布范围
+        """
         self.ax.clear()
         self.coords = {}
         
-        # 简单布局
+        # 简单布局（物理坐标，单位：英寸）
         self.coords[left] = (-1, 0)
         self.coords[right] = (1, 0)
         self.coords[merged] = (0, 1)
         
-        # 绘制连接线
+        # 绘制连接线 (Zorder 确保线在节点下方)
         lx, ly = self.coords[left]
         rx, ry = self.coords[right]
         mx, my = self.coords[merged]
-        self.ax.plot([lx, mx], [ly, my], 'k-')
-        self.ax.plot([rx, mx], [ry, my], 'k-')
+        self.ax.plot([lx, mx], [ly, my], 'k-', zorder=1)
+        self.ax.plot([rx, mx], [ry, my], 'k-', zorder=1) 
         
-        # 标记0和1
-        self.ax.text((lx + mx)/2, (ly + my)/2, "0", fontsize=12, color='blue')
-        self.ax.text((rx + mx)/2, (ry + my)/2, "1", fontsize=12, color='blue')
+        # 标记0和1（固定字体大小，不受画布缩放影响）
+        self.ax.text((lx + mx)/2 - 0.1, (ly + my)/2, "0", 
+                    fontsize=12, color='blue', weight='bold', zorder=2)
+        self.ax.text((rx + mx)/2 + 0.1, (ry + my)/2, "1", 
+                    fontsize=12, color='blue', weight='bold', zorder=2)
         
-        # 绘制节点
+        # 绘制节点（固定物理尺寸，确保最小大小）
         for node, (x, y) in self.coords.items():
             color = "#87CEFA" if node.char is None else "#90EE90"
-            circ = patches.Circle((x, y), 0.3, facecolor=color, edgecolor='black')
+            # 固定半径的圆形（物理尺寸，不受画布缩放影响）
+            circ = patches.Circle((x, y), NODE_RADIUS, 
+                                facecolor=color, edgecolor='black', linewidth=1, zorder=3)
             self.ax.add_patch(circ)
+            
+            # 文本内容：频率和字符（居中，固定字体大小）
             label = f"{node.freq}"
             if node.char is not None:
                 label += f"\n'{node.char}'"
-            self.ax.text(x, y, label, ha='center', va='center', fontsize=9)
+            self.ax.text(x, y, label, ha='center', va='center', fontsize=9, zorder=5)
             
         self.ax.axis('off')
-        self.ax.set_xlim(-2, 2)
-        self.ax.set_ylim(-0.5, 2)
-        self.canvas.draw_idle()
         
+        # 精准控制画布范围（仅保留必要留白，压缩无效空间）
+        x_min = min(lx, rx, mx) - NODE_RADIUS - TEXT_PADDING
+        x_max = max(lx, rx, mx) + NODE_RADIUS + TEXT_PADDING
+        y_min = min(ly, ry, my) - NODE_RADIUS - TEXT_PADDING
+        y_max = max(ly, ry, my) + NODE_RADIUS + TEXT_PADDING
+        self.ax.set_xlim(x_min, x_max)
+        self.ax.set_ylim(y_min, y_max)
+        self.ax.set_aspect('equal')  # 确保圆形不失真
+        
+        # 强制设置画布物理尺寸匹配内容（关键：避免缩放导致节点变小）
+        self.fig.set_size_inches(x_max - x_min, y_max - y_min, forward=True)
+        self.canvas.draw_idle()
+
     def draw_tree(self, root):
-        """绘制完整哈夫曼树，带0/1标记"""
+        """
+        绘制完整哈夫曼树，带0/1标记
+        核心优化：固定节点物理尺寸 + 优化布局间距 + 精准画布范围
+        """
         self.ax.clear()
         self.coords = {}
         
         if not root:
             self.ax.text(0.5, 0.5, "(空树)", ha="center", va="center", fontsize=16, color="gray")
+            self.ax.axis('off')
             self.canvas.draw_idle()
             return
             
-        # 递归布局
+        # 递归布局（优化间距：基于节点物理尺寸计算，避免过挤/过松）
         def layout(node, x, depth, span):
             if not node:
                 return
             self.coords[node] = (x, -depth)
-            child_span = span / 2
+            # 子节点间距 = 节点直径 + 最小间隙（确保节点不重叠）
+            child_span = max(MIN_NODE_SIZE_INCH * 2, span / 2)
             if node.left:
                 layout(node.left, x - child_span, depth + 1, child_span)
             if node.right:
                 layout(node.right, x + child_span, depth + 1, child_span)
                 
         max_depth = self._compute_depth(root)
-        layout(root, 0, 0, max(4, 2 **(max_depth - 1)))
+        # 初始跨度：基于树深度 + 节点物理尺寸，避免底层节点过挤
+        initial_span = max(MIN_NODE_SIZE_INCH * 3, 2 **(max_depth // 2))
+        layout(root, 0, 0, initial_span)
         
         # 绘制连接线和0/1标记
         for node, (x, y) in self.coords.items():
+            # 左子节点（0）
             if node.left and node.left in self.coords:
                 x2, y2 = self.coords[node.left]
-                self.ax.plot([x, x2], [y, y2], 'k-')
-                # 标记0
+                self.ax.plot([x, x2], [y, y2], 'k-', zorder=1)
+                # 标记0（居中，固定字体大小）
                 self.ax.text((x + x2)/2, (y + y2)/2, "0", 
-                           fontsize=10, color='blue', weight='bold')
+                            fontsize=10, color='blue', weight='bold', zorder=2)
+            # 右子节点（1）
             if node.right and node.right in self.coords:
                 x2, y2 = self.coords[node.right]
-                self.ax.plot([x, x2], [y, y2], 'k-')
-                # 标记1
+                self.ax.plot([x, x2], [y, y2], 'k-', zorder=1)
+                # 标记1（居中，固定字体大小）
                 self.ax.text((x + x2)/2, (y + y2)/2, "1", 
-                           fontsize=10, color='blue', weight='bold')
+                            fontsize=10, color='blue', weight='bold', zorder=2)
         
-        # 绘制节点
+        # 绘制节点（固定物理尺寸，确保最小大小）
+        xs = []
+        ys = []
         for node, (x, y) in self.coords.items():
-            # 叶子节点用不同颜色
+            xs.append(x)
+            ys.append(y)
+            # 叶子节点/非叶子节点颜色区分
             color = "#87CEFA" if node.char is None else "#90EE90"
-            circ = patches.Circle((x, y), 0.3, facecolor=color, edgecolor='black')
+            # 固定半径的圆形（物理尺寸）
+            circ = patches.Circle((x, y), NODE_RADIUS, 
+                                facecolor=color, edgecolor='black', linewidth=1, zorder=3)
             self.ax.add_patch(circ)
+            
+            # 文本内容：频率、字符、编码（居中，固定字体大小）
             label = f"{node.freq}"
             if node.char is not None:
                 label += f"\n'{node.char}'"
-                # 显示编码
-                if node.code:
+                if hasattr(node, 'code') and node.code:
                     label += f"\n{node.code}"
-            self.ax.text(x, y, label, ha='center', va='center', fontsize=8)
+            self.ax.text(x, y, label, ha='center', va='center', fontsize=8, zorder=5)
             
         self.ax.axis('off')
-        xs = [p[0] for p in self.coords.values()]
-        ys = [p[1] for p in self.coords.values()]
-        if xs and ys:
-            self.ax.set_xlim(min(xs) - 1, max(xs) + 1)
-            self.ax.set_ylim(min(ys) - 1, max(ys) + 1)
-        self.canvas.draw_idle()
         
+        # 精准控制画布范围（仅保留必要留白，压缩上下无效空间）
+        if xs and ys:
+            x_min = min(xs) - NODE_RADIUS - TEXT_PADDING
+            x_max = max(xs) + NODE_RADIUS + TEXT_PADDING
+            y_min = min(ys) - NODE_RADIUS - TEXT_PADDING
+            y_max = max(ys) + NODE_RADIUS + TEXT_PADDING
+            self.ax.set_xlim(x_min, x_max)
+            self.ax.set_ylim(y_min, y_max)
+            self.ax.set_aspect('equal')  # 确保圆形不失真
+            
+            # 强制画布物理尺寸匹配内容（核心：避免缩放导致节点变小）
+            self.fig.set_size_inches(
+                x_max - x_min, 
+                y_max - y_min, 
+                forward=True
+            )
+        
+        self.canvas.draw_idle()
+
     def _compute_depth(self, root):
         if not root:
             return 0

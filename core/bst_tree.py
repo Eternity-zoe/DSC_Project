@@ -213,11 +213,11 @@ class BSTree:
             step_callback(f"[predecessor] 查找 {val} 的前驱")
         path = []
         cur = self.root
-        pred = None
+        pred = None  # 存储找到的前驱节点
         while cur:
             path.append(cur)
             if val > cur.val:
-                pred = cur
+                pred = cur  # 当前节点可能是前驱，记录下来
                 cur = cur.right
                 if step_callback:
                     step_callback(f"[predecessor] {cur.parent.val if cur and cur.parent else '...'} 向右 (候选前驱={pred.val})")
@@ -233,9 +233,15 @@ class BSTree:
                     while n.right:
                         n = n.right
                         path.append(n)
-                    pred = n
-                break
-        self.notify("trace_path", None, extra=path)
+                    pred = n  # 更新前驱为左子树最右节点
+                break  # 找到目标节点后退出循环
+        
+        # 关键修复：使用正确的action和找到的节点通知UI
+        if pred:
+            self.notify("found_predecessor", pred, extra=path)  # 明确通知找到前驱
+        else:
+            self.notify("not_found", None, extra=path)  # 确实没找到时通知未找到
+        
         return pred, path
 
     # ---------- 删除 ----------
@@ -350,30 +356,55 @@ class BSTree:
             step_callback(f"[delete] 前驱 {pred.val} 已删除，替换完成")
         return True
 
+
     # ---------- 遍历（返回序列）并支持路径/动画 ----------
-    def inorder(self, step_callback=None, animate=False):
-        """返回中序序列。若 animate=True 会通过 notify(trace_path) 发送访问序列（节点列表）"""
+    def inorder(self, step_callback=None):
+        """
+        返回中序序列。
+        通过 step_callback 记录每个访问步骤，并触发 notify 来实现逐节点高亮动画。
+        """
         res = []
-        visit_path = []
+        visit_path = [] # 记录访问顺序的路径
 
         def dfs(node):
             if not node:
                 return
+            
+            # 1. 递归左子树
             dfs(node.left)
-            # 把节点按 freq 次数加入结果；但 visit_path 只记录节点对象一次（UI 在显示时可根据 freq 重复或标注）
+            
+            # 2. 访问当前节点 (中序的核心步骤)
+            # 记录访问步骤
+            if step_callback:
+                step_callback(f"[inorder] 访问节点 {node.val} (频率: {node.freq})")
+            
+            # 记录到路径中（用于 UI 逐节点高亮）
+            visit_path.append(node)
+            
+            # 立即通知 UI 绘制当前高亮节点
+            # 使用 "trace_step" 或 "trace_path" 都可以，但关键是每次访问都通知
+            # 我们将当前已访问的所有节点作为 extra 传递，让 UI 知道当前路径
+            self.notify("trace_step", node, extra=visit_path) 
+            
+            # 把节点按 freq 次数加入结果
             for _ in range(node.freq):
                 res.append(node.val)
-            visit_path.append(node)
+            
+            # 3. 递归右子树
             dfs(node.right)
+            
         dfs(self.root)
 
-        if animate:
-            # 发送遍历路径以供动画
-            self.notify("trace_path", None, extra=visit_path)
+        # 遍历结束后，发送一个完成通知
+        final_seq = " -> ".join(map(str, res))
         if step_callback:
-            step_callback(f"[inorder] 中序遍历结果: {res}")
+            step_callback(f"[inorder] 中序遍历完成，序列: {final_seq}")
+        
+        # 最后的通知，可以用于清除动画状态或显示最终结果
+        # 使用一个新的 action 区分于其他操作，或使用 trace_path 统一处理
+        self.notify("inorder_complete", None, extra=visit_path) 
+        
         return res
-
     def preorder(self, step_callback=None, animate=False):
         res = []
         visit_path = []

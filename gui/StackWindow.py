@@ -1,7 +1,7 @@
 # gui/StackWindow.py
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QLineEdit, QMessageBox, QStatusBar, QFileDialog, QTextEdit
+    QLabel, QLineEdit, QMessageBox, QStatusBar, QFileDialog, QTextEdit, QComboBox
 )
 from PySide6.QtCore import Qt, QTimer
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -17,46 +17,140 @@ from core.stack import Stack
 import matplotlib
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Heiti TC']
 matplotlib.rcParams['axes.unicode_minus'] = False
+from dsl.stack.stack_dsl_parser import StackDSLParser
+from dsl.stack.stack_dsl_executor import StackDSLExecutor
+
+# 定义DSL示例字典（可根据需要扩展）
+DSL_EXAMPLES = {
+    "基础入栈出栈": """stack Demo
+# 基础入栈、出栈、查看栈顶示例
+push 10
+push 20
+peek
+pop
+push -5
+peek
+""",
+    "栈满测试": """stack FullTest
+# 测试栈满后无法入栈（需适配栈的MAX_SIZE）
+push 1
+push 2
+push 3
+push 4
+push 5
+push 6  # 若栈最大容量为5，此行会报错
+""",
+    "空栈操作测试": """stack EmptyTest
+# 测试空栈出栈报错
+pop  # 初始栈空，此行会报错
+push 88
+pop
+pop  # 出栈后栈空，此行会报错
+""",
+    "随机操作组合": """stack RandomOps
+# 组合操作示例
+push 15
+push 30
+peek
+push 45
+pop
+pop
+push 70
+clear  # 清空栈
+push 99
+"""
+}
 
 class StackWindow(QMainWindow):
     """栈可视化窗口"""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("栈可视化系统（LIFO）")
-        self.resize(800, 600)
+        self.resize(1100, 600)
         
         # 核心数据结构
         self.stack = Stack()
         self.selected_node_idx = None  # 当前选中的节点索引
         self.operation_log = []  # 操作日志
+        self.dsl_executor = StackDSLExecutor(self)
         
         # 动画状态
         self.anim_timer = QTimer()
         self.anim_timer.timeout.connect(self._animate_step)
         self.anim_steps = []  # 动画步骤队列
         self.anim_index = 0  # 当前动画步骤索引
-        
+
         # 初始化UI
         self._init_ui()
         self._draw_stack()
 
     def _init_ui(self):
-        """初始化界面布局"""
+        """初始化界面布局（修复重复添加布局问题 + 新增示例加载）"""
         # 中心部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        main_layout = QHBoxLayout(central_widget)  # 主水平布局：左(DSL) + 右(可视化+控件)
 
-        # 1. 可视化画布
+        # ---------------------- 左侧 DSL 面板 ----------------------
+        left_panel = QVBoxLayout()
+        main_layout.addLayout(left_panel, 1)  # 左侧占1份宽度
+
+        # DSL标题
+        left_panel.addWidget(QLabel("<b>Stack DSL</b>"))
+
+        # 新增：示例选择下拉框
+        self.cb_dsl_examples = QComboBox()
+        self.cb_dsl_examples.addItem("选择DSL示例...")
+        self.cb_dsl_examples.addItems(DSL_EXAMPLES.keys())
+        self.cb_dsl_examples.currentTextChanged.connect(self._load_dsl_example)
+        left_panel.addWidget(self.cb_dsl_examples)
+
+        # DSL编辑框
+        self.dsl_edit = QTextEdit()
+        self.dsl_edit.setPlaceholderText("""stack Demo
+
+push 10
+push 20
+pop
+push -5
+peek
+""")
+        left_panel.addWidget(self.dsl_edit, stretch=1)
+
+        # DSL操作按钮
+        dsl_btns = QHBoxLayout()
+        left_panel.addLayout(dsl_btns)
+
+        btn_run = QPushButton("▶ 执行 DSL")
+        btn_run.clicked.connect(self.run_dsl)
+        dsl_btns.addWidget(btn_run)
+
+        btn_step = QPushButton("⏭ 单步")
+        btn_step.clicked.connect(self.step_dsl)
+        dsl_btns.addWidget(btn_step)
+
+        # 新增：清空DSL编辑框按钮
+        btn_clear_dsl = QPushButton("🗑 清空")
+        btn_clear_dsl.clicked.connect(self._clear_dsl_edit)
+        dsl_btns.addWidget(btn_clear_dsl)
+
+        # 左侧面板底部拉伸（让内容靠上）
+        left_panel.addStretch()
+
+        # ---------------------- 右侧 可视化+控件面板 ----------------------
+        right_panel = QVBoxLayout()
+        main_layout.addLayout(right_panel, 3)  # 右侧占3份宽度
+
+        # 1. 可视化画布（核心）
         self.fig = Figure(figsize=(6, 4))
         self.canvas = FigureCanvas(self.fig)
         self.ax = self.fig.add_subplot(111)
         self.canvas.mpl_connect("pick_event", self._on_node_click)
-        main_layout.addWidget(self.canvas, stretch=1)
+        right_panel.addWidget(self.canvas, stretch=1)  # 画布占主要高度
 
         # 2. 操作控件区
         ctrl_layout = QHBoxLayout()
-        main_layout.addLayout(ctrl_layout)
+        right_panel.addLayout(ctrl_layout)
 
         # 数据输入
         ctrl_layout.addWidget(QLabel("数据："))
@@ -88,7 +182,7 @@ class StackWindow(QMainWindow):
 
         # 3. 文件操作区
         file_layout = QHBoxLayout()
-        main_layout.addLayout(file_layout)
+        right_panel.addLayout(file_layout)
 
         self.btn_save = QPushButton("保存栈结构")
         self.btn_save.clicked.connect(self._save_structure)
@@ -100,7 +194,7 @@ class StackWindow(QMainWindow):
 
         # 4. 操作日志区
         log_layout = QHBoxLayout()
-        main_layout.addLayout(log_layout)
+        right_panel.addLayout(log_layout)
 
         log_label = QLabel("操作日志：")
         log_layout.addWidget(log_label)
@@ -114,6 +208,23 @@ class StackWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"就绪 - 栈容量：0/{self.stack.MAX_SIZE}")
+
+    # ------------------------------ 新增：DSL示例相关功能 ------------------------------
+    def _load_dsl_example(self, example_name: str):
+        """加载选中的DSL示例到编辑框"""
+        if example_name == "选择DSL示例..." or example_name not in DSL_EXAMPLES:
+            return
+        # 填充示例代码到编辑框
+        self.dsl_edit.setPlainText(DSL_EXAMPLES[example_name])
+        # 更新状态栏提示
+        self.status_bar.showMessage(f"已加载示例：{example_name}")
+
+    def _clear_dsl_edit(self):
+        """清空DSL编辑框"""
+        self.dsl_edit.clear()
+        # 重置下拉框到默认选项
+        self.cb_dsl_examples.setCurrentIndex(0)
+        self.status_bar.showMessage("DSL编辑框已清空")
 
     # ------------------------------ 核心操作 ------------------------------
     def _get_input_data(self) -> int:
@@ -410,14 +521,14 @@ class StackWindow(QMainWindow):
             if self.selected_node_idx == artist.index:
                 self.selected_node_idx = None
                 self.status_bar.showMessage(f"就绪 - 栈容量：{self.stack.size}/{self.stack.MAX_SIZE}")
-            else:
-                self.selected_node_idx = artist.index
-                # 显示节点信息
-                # artist.index 是 visual_data 中从栈顶开始的索引
-                node_data = self.stack.to_list()[-1 - artist.index] # 假设 to_list 是 [栈底...栈顶]
-                self.status_bar.showMessage(f"选中节点：位置 (栈顶算起) {artist.index + 1}，数据 {node_data}")
-            
-            self._draw_stack()
+        else:
+            self.selected_node_idx = artist.index
+            # 显示节点信息
+            # artist.index 是 visual_data 中从栈顶开始的索引
+            node_data = self.stack.to_list()[-1 - artist.index] # 假设 to_list 是 [栈底...栈顶]
+            self.status_bar.showMessage(f"选中节点：位置 (栈顶算起) {artist.index + 1}，数据 {node_data}")
+        
+        self._draw_stack()
 
     # ------------------------------ 日志记录 ------------------------------
     def _log_operation(self, content: str):
@@ -430,3 +541,15 @@ class StackWindow(QMainWindow):
             self.operation_log.pop(0)
         # 更新日志显示
         self.log_text.setText("\n".join(self.operation_log))
+
+    # ------------------------------ DSL执行 ------------------------------
+    def run_dsl(self):
+        try:
+            cmds = StackDSLParser.parse(self.dsl_edit.toPlainText())
+            self.dsl_executor.load(cmds)
+            self.dsl_executor.step()
+        except Exception as e:
+            QMessageBox.warning(self, "DSL 错误", str(e))
+
+    def step_dsl(self):
+        self.dsl_executor.step()
